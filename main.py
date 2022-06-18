@@ -1,6 +1,5 @@
 import argparse
 import os
-
 import pandas as pd
 import torch
 import torch.optim as optim
@@ -16,6 +15,7 @@ from model import Model
 def train(net, data_loader, train_optimizer):
     net.train()
     total_loss, total_num, train_bar = 0.0, 0, tqdm(data_loader)
+    # pos_1, pos_2为两个随机aug后的batch
     for pos_1, pos_2, target in train_bar:
         pos_1, pos_2 = pos_1.cuda(non_blocking=True), pos_2.cuda(non_blocking=True)
         feature_1, out_1 = net(pos_1)
@@ -101,35 +101,55 @@ if __name__ == '__main__':
     feature_dim, temperature, k = args.feature_dim, args.temperature, args.k
     batch_size, epochs = args.batch_size, args.epochs
 
-    # data prepare
+    # data prepare 此处均为CIFAR10
+    # num_workers 16改为0
     train_data = utils.CIFAR10Pair(root='data', train=True, transform=utils.train_transform, download=True)
-    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=16, pin_memory=True,
+    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=True,
                               drop_last=True)
+    #
     memory_data = utils.CIFAR10Pair(root='data', train=True, transform=utils.test_transform, download=True)
-    memory_loader = DataLoader(memory_data, batch_size=batch_size, shuffle=False, num_workers=16, pin_memory=True)
+    memory_loader = DataLoader(memory_data, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=True)
     test_data = utils.CIFAR10Pair(root='data', train=False, transform=utils.test_transform, download=True)
-    test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False, num_workers=16, pin_memory=True)
+    test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=True)
+
+    # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    # print(device)
 
     # model setup and optimizer config
     model = Model(feature_dim).cuda()
+
+    # # data parallel
+    # # device_ids = [0, 1]
+    # model = Model(feature_dim)
+    # model = torch.nn.DataParallel(model).to(device)
+
+    # 获得模型的参数量和计算量
     flops, params = profile(model, inputs=(torch.randn(1, 3, 32, 32).cuda(),))
     flops, params = clever_format([flops, params])
     print('# Model Params: {} FLOPs: {}'.format(params, flops))
+
+    # 与原文不同: Adam optimizer with learning rate 1e-3 is used to replace LARS optimizer
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-6)
+
     c = len(memory_data.classes)
 
     # training loop
     results = {'train_loss': [], 'test_acc@1': [], 'test_acc@5': []}
     save_name_pre = '{}_{}_{}_{}_{}'.format(feature_dim, temperature, k, batch_size, epochs)
+
     if not os.path.exists('results'):
         os.mkdir('results')
+
     best_acc = 0.0
+
     for epoch in range(1, epochs + 1):
         train_loss = train(model, train_loader, optimizer)
         results['train_loss'].append(train_loss)
+
         test_acc_1, test_acc_5 = test(model, memory_loader, test_loader)
         results['test_acc@1'].append(test_acc_1)
         results['test_acc@5'].append(test_acc_5)
+
         # save statistics
         data_frame = pd.DataFrame(data=results, index=range(1, epoch + 1))
         data_frame.to_csv('results/{}_statistics.csv'.format(save_name_pre), index_label='epoch')
