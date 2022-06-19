@@ -107,11 +107,20 @@ class BuildDG(nn.Module):
     def zero_grad(self):
         self.optimizer.zero_grad()
 
+    # used for the last module
+    def get_feature(self, x):
+        if self.last_layer:
+            feature = model[:-1](x)
+            # 1 * 2048
+            feature = F.normalize(feature, dim=-1)
+            return feature
+        else:
+            return None
+
 
 # set devices
 mulgpu = 1
 device = {}
-
 
 if torch.cuda.is_available():
     if mulgpu:
@@ -136,17 +145,29 @@ with torch.no_grad():
         # model_list[m] = model_list[m].to(device[m])
         model_list[m].eval()
 
-    _, outputs1_out = model(test_input)
+    feature1, outputs1_out = model(test_input)
 
+    # test for output
     outputs2 = test_input
     for m in model_list:
         outputs2 = model_list[m](outputs2)
 
     outputs2 = F.normalize(outputs2, dim=-1)
 
-    diff1 = outputs1_out - outputs2
+    # test for feature
+    feature2 = test_input
+    for m in range(num_split):
+        if m != num_split - 1:
+            feature2 = model_list[m](feature2)
+        else:
+            # 最后一个module只输出f的output
+            feature2 = model_list[m][:-1](feature2)
 
-    if diff1.sum() == 0:
+    feature2 = F.normalize(feature2, dim=-1)
+
+    diff1 = outputs1_out - outputs2
+    diff2 = feature1 - feature2
+    if diff1.sum() == 0 and diff2.sum() == 0:
         print('split valid!')
     else:
         print('split invalid!')

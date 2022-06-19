@@ -250,9 +250,73 @@ def train_decl(train_loader, module, epoch, args):
                 module[last_idx].acc5), args.batch_size)
         if module[last_idx].loss != 0:
             losses.update(to_python_float(module[last_idx].loss), args.batch_size)
-        # if i == 2:
-        #     break
+
         pbar.set_description('Train Epoch: [{}/{}] Loss: {:.4f}'.format(epoch, args.epochs, module[last_idx].loss))
+
+    return module[last_idx].loss
+
+
+# Validation for one epoch (using KNN)
+def test(memory_data_loader, test_data_loader, module, epoch, args):
+    for m in range(num_split):
+        module[m].eval()
+
+    total_top1, total_top5, total_num, feature_bank = 0.0, 0.0, 0, []
+
+    with torch.no_grad():
+        # generate feature bank
+        for data, _, target in tqdm(memory_data_loader, desc='Feature extracting'):
+            # 迭代num_split个module获取f输出的feature
+            feature = data
+            for m in range(num_split):
+                if m != num_split - 1:
+                    feature = module[m](feature)
+                else:
+                    # 最后一个module只输出f的output
+                    feature = module[m].get_feature(feature)
+
+            # feature, out = net(data.cuda(device='cuda:2', non_blocking=True))
+            feature_bank.append(feature)
+        # [D, N]
+        feature_bank = torch.cat(feature_bank, dim=0).t().contiguous()
+        # [N]
+        feature_labels = torch.tensor(memory_data_loader.dataset.targets, device=feature_bank.device)
+        # loop test data to predict the label by weighted knn search
+        test_bar = tqdm(test_data_loader)
+        for data, _, target in test_bar:
+            data, target = data.cuda(device='cuda:2', non_blocking=True), target.cuda(device='cuda:2',
+                                                                                      non_blocking=True)
+            feature = data
+            for m in range(num_split):
+                if m != num_split - 1:
+                    feature = module[m](feature)
+                else:
+                    # 最后一个module只输出f的output
+                    feature = module[m].get_feature(feature)
+
+            total_num += data.size(0)
+            # compute cos similarity between each feature vector and feature bank ---> [B, N]
+            sim_matrix = torch.mm(feature, feature_bank)
+            # [B, K]
+            sim_weight, sim_indices = sim_matrix.topk(k=args.k, dim=-1)
+            # [B, K]
+            sim_labels = torch.gather(feature_labels.expand(data.size(0), -1), dim=-1, index=sim_indices)
+            sim_weight = (sim_weight / args.temperature).exp()
+
+            # counts for each class
+            one_hot_label = torch.zeros(data.size(0) * args.k, args.c, device=sim_labels.device)
+            # [B*K, C]
+            one_hot_label = one_hot_label.scatter(dim=-1, index=sim_labels.view(-1, 1), value=1.0)
+            # weighted score ---> [B, C]
+            pred_scores = torch.sum(one_hot_label.view(data.size(0), -1, args.c) * sim_weight.unsqueeze(dim=-1), dim=1)
+
+            pred_labels = pred_scores.argsort(dim=-1, descending=True)
+            total_top1 += torch.sum((pred_labels[:, :1] == target.unsqueeze(dim=-1)).any(dim=-1).float()).item()
+            total_top5 += torch.sum((pred_labels[:, :5] == target.unsqueeze(dim=-1)).any(dim=-1).float()).item()
+            test_bar.set_description('Test Epoch: [{}/{}] Acc@1:{:.2f}% Acc@5:{:.2f}%'
+                                     .format(epoch, args.epochs, total_top1 / total_num * 100, total_top5 / total_num * 100))
+
+    return total_top1 / total_num * 100, total_top5 / total_num * 100
 
 
 def main():
@@ -273,6 +337,8 @@ def main():
     test_loader = DataLoader(test_data, batch_size=args.batch_size,
                              shuffle=False, num_workers=0, pin_memory=True)
 
+    args.c = len(memory_data.classes)
+
     args.receive_grad = []
     args.input_info1 = {}
     args.input_info2 = {}
@@ -283,10 +349,15 @@ def main():
         args.receive_grad.append(False)
     print('Training begins')
 
-    for epoch in range(0, args.epochs):
-        train_decl(train_loader, module, epoch, args)
+    results = {'train_loss': [], 'test_acc@1': [], 'test_acc@5': []}
 
-    # 暂时省略simclr的validation
+    for epoch in range(0, args.epochs):
+        train_loss = train_decl(train_loader, module, epoch, args)
+        results['train_loss'].append(train_loss)
+
+        test_acc_1, test_acc_5 = test(memory_loader, test_loader, module)
+        results['test_acc@1'].append(test_acc_1)
+        results['test_acc@5'].append(test_acc_5)
 
 
 if __name__ == '__main__':
@@ -304,6 +375,7 @@ if __name__ == '__main__':
                         help='')
     parser.add_argument('--temperature', default=0.5, type=float, help='Temperature used in softmax')
     parser.add_argument('--clip', default=1e10, type=float, help='Gradient clipping')
+    parser.add_argument('--k', default=200, type=int, help='Top k most similar images used to predict the label')
 
     args = parser.parse_args()
 

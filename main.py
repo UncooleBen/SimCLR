@@ -60,9 +60,9 @@ def test(net, memory_data_loader, test_data_loader):
         # loop test data to predict the label by weighted knn search
         test_bar = tqdm(test_data_loader)
         for data, _, target in test_bar:
-            data, target = data.cuda(device='cuda:2', non_blocking=True), target.cuda(device='cuda:2', non_blocking=True)
+            data, target = data.cuda(device='cuda:2', non_blocking=True), target.cuda(device='cuda:2',
+                                                                                      non_blocking=True)
             feature, out = net(data)
-
 
             total_num += data.size(0)
             # compute cos similarity between each feature vector and feature bank ---> [B, N]
@@ -94,8 +94,8 @@ if __name__ == '__main__':
     parser.add_argument('--feature_dim', default=128, type=int, help='Feature dim for latent vector')
     parser.add_argument('--temperature', default=0.5, type=float, help='Temperature used in softmax')
     parser.add_argument('--k', default=200, type=int, help='Top k most similar images used to predict the label')
-    parser.add_argument('--batch_size', default=512, type=int, help='Number of images in each mini-batch')
-    parser.add_argument('--epochs', default=500, type=int, help='Number of sweeps over the dataset to train')
+    parser.add_argument('--batch_size', default=128, type=int, help='Number of images in each mini-batch')
+    parser.add_argument('--epochs', default=300, type=int, help='Number of sweeps over the dataset to train')
 
     # args parse
     args = parser.parse_args()
@@ -113,7 +113,7 @@ if __name__ == '__main__':
     test_data = utils.CIFAR10Pair(root='data', train=False, transform=utils.test_transform, download=True)
     test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=True)
 
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
     print(device)
 
     # # model setup and optimizer config
@@ -122,7 +122,8 @@ if __name__ == '__main__':
     # data parallel
     # device_ids = [0, 1]
     model = Model(feature_dim)
-    model = torch.nn.DataParallel(model).to(device)
+    model = model.to(device)
+    model = torch.nn.DataParallel(model, device_ids=[2, 3])
 
     # # 获得模型的参数量和计算量
     # flops, params = profile(model, inputs=(torch.randn(1, 3, 32, 32).cuda(),))
