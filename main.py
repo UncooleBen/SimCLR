@@ -22,12 +22,12 @@ def train(net, data_loader, train_optimizer):
         feature_2, out_2 = net(pos_2)
         # [2*B, D]
         out = torch.cat([out_1, out_2], dim=0)
+        # print(f'out= {torch.norm(out, 2, dim=1)}')
         # [2*B, 2*B]
         sim_matrix = torch.exp(torch.mm(out, out.t().contiguous()) / temperature)
         mask = (torch.ones_like(sim_matrix) - torch.eye(2 * batch_size, device=sim_matrix.device)).bool()
         # [2*B, 2*B-1]
         sim_matrix = sim_matrix.masked_select(mask).view(2 * batch_size, -1)
-
         # compute loss
         pos_sim = torch.exp(torch.sum(out_1 * out_2, dim=-1) / temperature)
         # [2*B]
@@ -51,7 +51,7 @@ def test(net, memory_data_loader, test_data_loader):
     with torch.no_grad():
         # generate feature bank
         for data, _, target in tqdm(memory_data_loader, desc='Feature extracting'):
-            feature, out = net(data.cuda(non_blocking=True))
+            feature, out = net(data.cuda(device='cuda:2', non_blocking=True))
             feature_bank.append(feature)
         # [D, N]
         feature_bank = torch.cat(feature_bank, dim=0).t().contiguous()
@@ -60,8 +60,9 @@ def test(net, memory_data_loader, test_data_loader):
         # loop test data to predict the label by weighted knn search
         test_bar = tqdm(test_data_loader)
         for data, _, target in test_bar:
-            data, target = data.cuda(non_blocking=True), target.cuda(non_blocking=True)
+            data, target = data.cuda(device='cuda:2', non_blocking=True), target.cuda(device='cuda:2', non_blocking=True)
             feature, out = net(data)
+
 
             total_num += data.size(0)
             # compute cos similarity between each feature vector and feature bank ---> [B, N]
@@ -112,21 +113,21 @@ if __name__ == '__main__':
     test_data = utils.CIFAR10Pair(root='data', train=False, transform=utils.test_transform, download=True)
     test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=True)
 
-    # device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    # print(device)
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    print(device)
 
-    # model setup and optimizer config
-    model = Model(feature_dim).cuda()
+    # # model setup and optimizer config
+    # model = Model(feature_dim).cuda()
 
-    # # data parallel
-    # # device_ids = [0, 1]
-    # model = Model(feature_dim)
-    # model = torch.nn.DataParallel(model).to(device)
+    # data parallel
+    # device_ids = [0, 1]
+    model = Model(feature_dim)
+    model = torch.nn.DataParallel(model).to(device)
 
-    # 获得模型的参数量和计算量
-    flops, params = profile(model, inputs=(torch.randn(1, 3, 32, 32).cuda(),))
-    flops, params = clever_format([flops, params])
-    print('# Model Params: {} FLOPs: {}'.format(params, flops))
+    # # 获得模型的参数量和计算量
+    # flops, params = profile(model, inputs=(torch.randn(1, 3, 32, 32).cuda(),))
+    # flops, params = clever_format([flops, params])
+    # print('# Model Params: {} FLOPs: {}'.format(params, flops))
 
     # 与原文不同: Adam optimizer with learning rate 1e-3 is used to replace LARS optimizer
     optimizer = optim.Adam(model.parameters(), lr=1e-3, weight_decay=1e-6)

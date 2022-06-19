@@ -3,6 +3,7 @@ import os
 
 import pandas as pd
 import torch
+import torch.nn.functional as F
 import torch.optim as optim
 from thop import profile, clever_format
 from torch.utils.data import DataLoader
@@ -36,7 +37,7 @@ class AverageMeter(object):
         self.count += n
         self.avg = self.sum / self.count
 
-
+# Broken
 def adjust_learning_rate(module, epoch, step, len_epoch):
     """LR schedule that should yield 76% converged accuracy with batch size 256"""
     for i in range(len(args.lr_decay_milestones)):
@@ -52,7 +53,7 @@ def adjust_learning_rate(module, epoch, step, len_epoch):
     if epoch < args.warm_up_epochs:
         lr = 0.01 * args.lr + (args.lr - 0.01 * args.lr) * (step + 1 + epoch * len_epoch) / (
             args.warm_up_epochs * len_epoch)
-    for m in range(args.num_split):
+    for m in range(num_split):
         for param_group in module[m].optimizer.param_groups:
             param_group['lr'] = lr
 
@@ -62,7 +63,8 @@ def adjust_learning_rate(module, epoch, step, len_epoch):
 def accuracy(args, output, target, topk=(1,)):
     """Computes the precision@k for the specified values of k"""
     maxk = max(topk)
-    args.batch_size = target.size(0)
+    # args.batch_size = target.size(0)
+    return 0
 
     _, pred = output.topk(maxk, 1, True, True)
     pred = pred.t()
@@ -86,6 +88,7 @@ def to_python_float(t):
 def trainfdg(module, input_1, input_2, args):
     if not module.last_layer:
         if input_1 is not None and input_2 is not None:
+            # print('not last and has aug1 aug2')
             module.train()
             args.receive_grad[module.module_num] = module.backward()
 
@@ -96,7 +99,11 @@ def trainfdg(module, input_1, input_2, args):
 
             output_1 = module(input_1)
             output_2 = module(input_2)
-
+            # print(f'input_1 = {input_1.mean()}')
+            # print(f'input_2 = {input_2.mean()}')
+            #
+            # print(f'output_1 = {output_1.mean()}')
+            # print(f'output_2 = {output_2.mean()}')
             module.output_1.append(output_1)
             module.output_2.append(output_2)
 
@@ -114,6 +121,7 @@ def trainfdg(module, input_1, input_2, args):
 
     elif module.last_layer:
         if input_1 is not None and input_2 is not None:
+            # print(f'last and has aug1 aug2')
             module.train()
             # choose mode B
             if args.receive_grad[module.module_num - 1] is True:
@@ -123,11 +131,20 @@ def trainfdg(module, input_1, input_2, args):
                     module.update_count = 0
             else:
                 pass
+            # print(f'input_1 = {input_1.mean()}')
+            # print(f'input_2 = {input_2.mean()}')
             output_1 = module(input_1)
             output_2 = module(input_2)
+
+            # 最后一层对输出向量归一化后计算loss
+            output_1 = F.normalize(output_1, dim=-1)
+            output_2 = F.normalize(output_2, dim=-1)
+            # print(f'output_1 = {output_1}')
+            # print(f'output_2 = {output_2}')
             # compute simclr loss
             # [2*B, D]
             out = torch.cat([output_1, output_2], dim=0)
+            # print(f'out= {torch.norm(out, 2, dim=1)}')
             # [2*B, 2*B]
             sim_matrix = torch.exp(
                 torch.mm(out, out.t().contiguous()) / args.temperature)
@@ -136,15 +153,20 @@ def trainfdg(module, input_1, input_2, args):
             # [2*B, 2*B-1]
             sim_matrix = sim_matrix.masked_select(
                 mask).view(2 * args.batch_size, -1)
-
+            # print(f'sim_matrix= {sim_matrix}')
             # compute loss
             pos_sim = torch.exp(
                 torch.sum(output_1 * output_2, dim=-1) / args.temperature)
+            # print(f'pos_sim = {pos_sim}')
             # [2*B]
             pos_sim = torch.cat([pos_sim, pos_sim], dim=0)
             loss = (- torch.log(pos_sim / sim_matrix.sum(dim=-1))).mean()
+            # print(f'loss = {loss}')
             loss.backward()
             module.update_count += 1
+            # Update loss to module
+            module.loss = loss
+
             # TODO: Update accuracy
             acc1 = accuracy(args, output_1.data, output_2.data, topk=(1,))
             module.input_grad_1 = input_1.grad
@@ -155,11 +177,11 @@ def trainfdg(module, input_1, input_2, args):
 
 
 def train_decl(train_loader, module, epoch, args):
-    for m in range(args.num_split):
+    for m in range(num_split):
         args.receive_grad[m] = False
 
-    # 暂时将total epoch设置成300
-    pbar = tqdm(enumerate(train_loader), desc='Training Epoch {}/{}'.format(str(epoch + 1), 300),
+    # 暂时将total epoch设置成1
+    pbar = tqdm(enumerate(train_loader), desc='Training Epoch {}/{}'.format(str(epoch + 1), args.epochs),
                 total=len(train_loader), unit='batch')
 
     # 可记录单次和平均时间
@@ -174,8 +196,9 @@ def train_decl(train_loader, module, epoch, args):
     # pos_i: [batch_size, 3, 32, 32]
     # 总的输入batch为 2*batch_size, neg_sample数量为 2*batch_size - 1
     for i, (pos_1, pos_2, _) in pbar:
-        lr = adjust_learning_rate(
-            module=module, epoch=epoch, step=i, len_epoch=len(train_loader))
+        # print(f'i = {i}')
+        # lr = adjust_learning_rate(
+        #   module=module, epoch=epoch, step=i, len_epoch=len(train_loader))
         data_time.update(time.time() - end)
 
         # dataLoader中pin_memory=True时，才能使用non_blocking，此时不使用虚拟内存，加快速度
@@ -188,26 +211,30 @@ def train_decl(train_loader, module, epoch, args):
         # train in fdg/adl mode
         processes = []
 
-        for m in range(args.num_split):
+        for m in range(num_split):
+            # print(f'epoch = {epoch} m = {m}')
             p = threading.Thread(target=trainfdg, args=(
-                module[m], args.input_info1[m], args.input_info2[m]))
+                module[m], args.input_info1[m], args.input_info2[m], args))
             p.start()
             processes.append(p)
         for p in processes:
             p.join()
 
+        # 串行调试
+        # for m in range(num_split):
+        #     trainfdg(module[m], args.input_info1[m], args.input_info2[m], args)
+
         # TODO: Communication
         # Set previous module's output as current module's input for next round
         from torch.autograd import Variable
-        for m in reversed(range(1, args.num_split)):
-            previous_module_output_1, previous_module_output_2 = module[m-1].get_output(
-            )
+        for m in reversed(range(1, num_split)):
+            previous_module_output_1, previous_module_output_2 = module[m-1].get_output()
             args.input_info1[m] = Variable(previous_module_output_1.detach().clone().to(
                 device[m]), requires_grad=True) if previous_module_output_1 is not None else None
             args.input_info2[m] = Variable(previous_module_output_2.detach().clone().to(
                 device[m]), requires_grad=True) if previous_module_output_2 is not None else None
         # Set next module's input_grad as current module's delayed grad for next round
-        for m in range(args.num_split-1):
+        for m in range(num_split-1):
             module[m].dg_1 = module[m+1].input_grad_1.clone().to(device[m]
                                                                  ) if module[m+1].input_grad_1 is not None else None
             module[m].dg_2 = module[m+1].input_grad_2.clone().to(device[m]
@@ -215,7 +242,7 @@ def train_decl(train_loader, module, epoch, args):
         # TODO: Compute communication time
         # HERE
         # TODO: Update accuracy
-        last_idx = args.num_split - 1
+        last_idx = num_split - 1
         if module[last_idx].acc != 0:
             top1.update(to_python_float(
                 module[last_idx].acc), args.batch_size)
@@ -223,6 +250,10 @@ def train_decl(train_loader, module, epoch, args):
                 module[last_idx].acc5), args.batch_size)
         if module[last_idx].loss != 0:
             losses.update(to_python_float(module[last_idx].loss), args.batch_size)
+        # if i == 2:
+        #     break
+        pbar.set_description('Train Epoch: [{}/{}] Loss: {:.4f}'.format(epoch, args.epochs, module[last_idx].loss))
+
 
 def main():
     # define data loader
@@ -246,7 +277,7 @@ def main():
     args.input_info1 = {}
     args.input_info2 = {}
 
-    for m in range(args.num_split):
+    for m in range(num_split):
         args.input_info1[m] = None
         args.input_info2[m] = None
         args.receive_grad.append(False)
@@ -265,10 +296,14 @@ if __name__ == '__main__':
         description='SimCLR in decoupled training')
     parser.add_argument('--batch-size', type=int, default=128,
                         help='input batch size for training (default: 128)')
-    parser.add_argument('--epochs', type=int, default=300,
-                        help='number of epochs to train (default: 300)')
+    parser.add_argument('--epochs', type=int, default=1,
+                        help='number of epochs to train (default: 1)')
     parser.add_argument('-free-compute-graph', type=bool, default=False,
                         help='Whether to free compute graph of aug1')
+    parser.add_argument('--ac-step', type=int, default=1,
+                        help='')
+    parser.add_argument('--temperature', default=0.5, type=float, help='Temperature used in softmax')
+    parser.add_argument('--clip', default=1e10, type=float, help='Gradient clipping')
 
     args = parser.parse_args()
 

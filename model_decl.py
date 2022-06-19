@@ -21,7 +21,7 @@ if num_split == 2:
 
 
 class BuildDG(nn.Module):
-    def __init__(self, model, optimizer, split_loc):
+    def __init__(self, model, optimizer, split_loc, num_split):
         super(BuildDG, self).__init__()
 
         self.model = model
@@ -49,6 +49,19 @@ class BuildDG(nn.Module):
         self.input_grad_1 = None
         self.input_grad_2 = None
 
+        if split_loc == 0:
+            self.first_layer = True
+            self.last_layer = False
+        elif split_loc == num_split - 1:
+            self.first_layer = False
+            self.last_layer = True
+        else:
+            self.first_layer = False
+            self.last_layer = False
+
+        self.acc = 0
+        self.loss = 0
+
     def forward(self, x):
         return self.model(x)
 
@@ -62,7 +75,6 @@ class BuildDG(nn.Module):
         else:
             rev_grad_1 = False
             print('no backward for aug1 in module {}'.format(self.module_num))
-            exit(1)
 
         # backward on aug2
         graph = self.output_2.popleft()
@@ -73,15 +85,18 @@ class BuildDG(nn.Module):
         else:
             rev_grad_2 = False
             print('no backward for aug2 in module {}'.format(self.module_num))
-            exit(1)
 
         return rev_grad_1 or rev_grad_2
 
     def get_grad(self):
-        return (self.input_1.popleft().grad, self.input_2.popleft().grad)
+        return self.input_1.popleft().grad, self.input_2.popleft().grad
 
     def get_output(self):
-        return (self.output_1[self.delay - 1], self.output_2[self.delay - 1])
+        # print(f'output_1 len {len(self.output_1)} output_2 len {len(self.output_2)}')
+        # print(f'self.delay = {self.delay} self.output_dq = {self.output_dq}')
+        # print(self.output_1)
+        # print(self.output_2)
+        return self.output_1[self.delay - 1], self.output_2[self.delay - 1]
 
     def train(self):
         self.model.train()
@@ -94,13 +109,15 @@ class BuildDG(nn.Module):
 
 
 # set devices
-mulgpu = 0
+mulgpu = 1
 device = {}
+
 
 if torch.cuda.is_available():
     if mulgpu:
         for i in range(num_split):
-            device[i] = torch.device('cuda:' + str(i))
+            # use gpu 2 gpu 3 to avoid gpu out of memory
+            device[i] = torch.device('cuda:' + str(i + 2))
     else:
         for i in range(num_split):
             device[i] = torch.device('cuda:' + str(0))
@@ -149,4 +166,4 @@ for m in model_list:
 module = {}
 
 for m in range(num_split):
-    module[m] = BuildDG(model=model_list[m], optimizer=optimizer[m], split_loc=m)
+    module[m] = BuildDG(model=model_list[m], optimizer=optimizer[m], split_loc=m, num_split=num_split)
