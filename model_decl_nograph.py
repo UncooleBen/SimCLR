@@ -18,8 +18,10 @@ model_list = {}
 model = Model()
 
 if num_split == 2:
-    model_list[0] = nn.Sequential(model.f[0], model.f[1], model.f[2], model.f[3], model.f[4])
-    model_list[1] = nn.Sequential(model.f[5], model.f[6], model.f[7], Flatten(), model.g)
+    model_list[0] = nn.Sequential(
+        model.f[0], model.f[1], model.f[2], model.f[3], model.f[4])
+    model_list[1] = nn.Sequential(
+        model.f[5], model.f[6], model.f[7], Flatten(), model.g)
 
 
 class DeclModuleImpl(IDeclModule):
@@ -84,10 +86,11 @@ class DeclModuleImpl(IDeclModule):
             rev_grad_1 = True
         else:
             rev_grad_1 = False
-            print('no backward for aug1 in module {} dg_1 is None {} input1 is None {}'.format(self.module_num, self.dg_1 is None, self.input_1[0] is None))
+            print('no backward for aug1 in module {} dg_1 is None {} input1 is None {}'.format(
+                self.module_num, self.dg_1 is None, self.input_1[0] is None))
 
         # backward on aug2
-        
+
         if self.dg_2 is not None and self.input_2[0] is not None:
             oldest_output_2 = self.forward(self.input_2[0])
             oldest_output_2.backward(self.dg_2)
@@ -96,14 +99,14 @@ class DeclModuleImpl(IDeclModule):
             rev_grad_2 = True
         else:
             rev_grad_2 = False
-            print('no backward for aug2 in module {} dg_2 is None {} input2 is None {}'.format(self.module_num, self.dg_2 is None, self.input_2[0] is None))
+            print('no backward for aug2 in module {} dg_2 is None {} input2 is None {}'.format(
+                self.module_num, self.dg_2 is None, self.input_2[0] is None))
 
         self.inc_update_count()
         return rev_grad_1 and rev_grad_2
 
     def get_grad(self):
         return self.input_1.popleft().grad, self.input_2.popleft().grad
-
 
     def set_output(self, output_1, output_2):
         self.output_1 = output_1
@@ -143,7 +146,7 @@ class DeclModuleImpl(IDeclModule):
 
     def inc_update_count(self):
         self.update_count += 1
-    
+
     def clear_update_count(self):
         self.update_count = 0
 
@@ -173,7 +176,6 @@ class DeclModuleImpl(IDeclModule):
         self.dg_1 = dg_1
         self.dg_2 = dg_2
 
-    
 
 # set devices
 mulgpu = 1
@@ -235,7 +237,8 @@ scheduler = {}
 for m in model_list:
     model_list[m] = model_list[m].to(device[m])
     # 使用adam优化器
-    optimizer[m] = optim.Adam(model_list[m].parameters(), lr=1e-3, weight_decay=1e-6)
+    optimizer[m] = optim.Adam(
+        model_list[m].parameters(), lr=1e-3, weight_decay=1e-6)
 
     # scheduler[m] = LRS.MultiStepLR(optimizer[m], milestones=args.lr_decay_milestones, gamma=args.lr_decay_fact)
 
@@ -243,7 +246,8 @@ for m in model_list:
 module = {}
 
 for m in range(num_split):
-    module[m] = DeclModuleImpl(model=model_list[m], optimizer=optimizer[m], split_loc=m, num_split=num_split)
+    module[m] = DeclModuleImpl(
+        model=model_list[m], optimizer=optimizer[m], split_loc=m, num_split=num_split)
 
 
 # test for feature forwarding

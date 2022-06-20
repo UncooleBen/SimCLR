@@ -13,6 +13,7 @@ import threading
 
 import utils
 
+
 class AverageMeter(object):
     """Computes and stores the average and current value"""
 
@@ -35,6 +36,8 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 # Broken
+
+
 def adjust_learning_rate(module, epoch, step, len_epoch):
     """LR schedule that should yield 76% converged accuracy with batch size 256"""
     for i in range(len(args.lr_decay_milestones)):
@@ -55,6 +58,7 @@ def adjust_learning_rate(module, epoch, step, len_epoch):
             param_group['lr'] = lr
 
     return lr
+
 
 def to_python_float(t):
     if hasattr(t, 'item'):
@@ -78,7 +82,8 @@ def trainfdg(module, input_1, input_2, args):
                 module.clear_update_count()
 
             module.set_input(input_1, input_2)
-            module.set_output(module.forward(input_1, free_grad=args.free_compute_graph), module.forward(input_2, free_grad=args.free_compute_graph))
+            module.set_output(module.forward(input_1, free_grad=args.free_compute_graph), module.forward(
+                input_2, free_grad=args.free_compute_graph))
 
             oldest_input_1, oldest_input_2 = module.get_oldest_input()
 
@@ -196,7 +201,8 @@ def train_decl(train_loader, module, epoch, args):
         # Set previous module's output as current module's input for next round
         from torch.autograd import Variable
         for m in reversed(range(1, num_split)):
-            previous_module_output_1, previous_module_output_2 = module[m-1].get_output()
+            previous_module_output_1, previous_module_output_2 = module[m-1].get_output(
+            )
             # del args.input_info1[m]
             args.input_info1[m] = Variable(previous_module_output_1.detach().clone().to(
                 device[m]), requires_grad=True) if previous_module_output_1 is not None else None
@@ -205,20 +211,25 @@ def train_decl(train_loader, module, epoch, args):
                 device[m]), requires_grad=True) if previous_module_output_2 is not None else None
         # Set current module's delayed grad as next module's input_grad for next round
         for m in range(num_split-1):
-            next_module_input_grads_1, next_module_input_grads_2 = module[m+1].get_input_grad()
-            next_module_input_grads_1 = next_module_input_grads_1.clone().to(device[m]) if next_module_input_grads_1 is not None else None
+            next_module_input_grads_1, next_module_input_grads_2 = module[m+1].get_input_grad(
+            )
+            next_module_input_grads_1 = next_module_input_grads_1.clone().to(
+                device[m]) if next_module_input_grads_1 is not None else None
             next_module_input_grads_2 = next_module_input_grads_2.clone().to(
                 device[m]) if next_module_input_grads_2 is not None else None
-            module[m].set_dg(next_module_input_grads_1, next_module_input_grads_2)
+            module[m].set_dg(next_module_input_grads_1,
+                             next_module_input_grads_2)
         # TODO: Compute communication time
         # HERE
         last_idx = num_split - 1
         if module[last_idx].get_loss() != 0:
-            losses.update(to_python_float(module[last_idx].get_loss()), args.batch_size)
+            losses.update(to_python_float(
+                module[last_idx].get_loss()), args.batch_size)
 
         total_num += args.batch_size
         total_loss += module[last_idx].get_loss() * args.batch_size
-        pbar.set_description('Train Epoch: [{}/{}] Loss: {:.4f}'.format(epoch, args.epochs, total_loss / total_num))
+        pbar.set_description(
+            'Train Epoch: [{}/{}] Loss: {:.4f}'.format(epoch, args.epochs, total_loss / total_num))
 
     return total_loss / total_num
 
@@ -249,7 +260,8 @@ def test(memory_data_loader, test_data_loader, module, epoch, args):
         # [D, N]
         feature_bank = torch.cat(feature_bank, dim=0).t().contiguous()
         # [N]
-        feature_labels = torch.tensor(memory_data_loader.dataset.targets, device=feature_bank.device)
+        feature_labels = torch.tensor(
+            memory_data_loader.dataset.targets, device=feature_bank.device)
         # loop test data to predict the label by weighted knn search
         test_bar = tqdm(test_data_loader)
         for data, _, target in test_bar:
@@ -270,19 +282,25 @@ def test(memory_data_loader, test_data_loader, module, epoch, args):
             # [B, K]
             sim_weight, sim_indices = sim_matrix.topk(k=args.k, dim=-1)
             # [B, K]
-            sim_labels = torch.gather(feature_labels.expand(data.size(0), -1), dim=-1, index=sim_indices)
+            sim_labels = torch.gather(feature_labels.expand(
+                data.size(0), -1), dim=-1, index=sim_indices)
             sim_weight = (sim_weight / args.temperature).exp()
 
             # counts for each class
-            one_hot_label = torch.zeros(data.size(0) * args.k, args.c, device=sim_labels.device)
+            one_hot_label = torch.zeros(
+                data.size(0) * args.k, args.c, device=sim_labels.device)
             # [B*K, C]
-            one_hot_label = one_hot_label.scatter(dim=-1, index=sim_labels.view(-1, 1), value=1.0)
+            one_hot_label = one_hot_label.scatter(
+                dim=-1, index=sim_labels.view(-1, 1), value=1.0)
             # weighted score ---> [B, C]
-            pred_scores = torch.sum(one_hot_label.view(data.size(0), -1, args.c) * sim_weight.unsqueeze(dim=-1), dim=1)
+            pred_scores = torch.sum(one_hot_label.view(
+                data.size(0), -1, args.c) * sim_weight.unsqueeze(dim=-1), dim=1)
 
             pred_labels = pred_scores.argsort(dim=-1, descending=True)
-            total_top1 += torch.sum((pred_labels[:, :1] == target.unsqueeze(dim=-1)).any(dim=-1).float()).item()
-            total_top5 += torch.sum((pred_labels[:, :5] == target.unsqueeze(dim=-1)).any(dim=-1).float()).item()
+            total_top1 += torch.sum(
+                (pred_labels[:, :1] == target.unsqueeze(dim=-1)).any(dim=-1).float()).item()
+            total_top5 += torch.sum(
+                (pred_labels[:, :5] == target.unsqueeze(dim=-1)).any(dim=-1).float()).item()
             test_bar.set_description('Test Epoch: [{}/{}] Acc@1:{:.2f}% Acc@5:{:.2f}%'
                                      .format(epoch, args.epochs, total_top1 / total_num * 100, total_top5 / total_num * 100))
 
@@ -332,7 +350,8 @@ def main():
         train_loss = train_decl(train_loader, module, epoch, args)
         results['train_loss'].append(train_loss)
 
-        test_acc_1, test_acc_5 = test(memory_loader, test_loader, module, epoch, args)
+        test_acc_1, test_acc_5 = test(
+            memory_loader, test_loader, module, epoch, args)
         results['test_acc@1'].append(test_acc_1)
         results['test_acc@5'].append(test_acc_5)
 
@@ -350,9 +369,12 @@ if __name__ == '__main__':
                         help='Whether to free compute graph of aug1')
     parser.add_argument('--ac-step', type=int, default=1,
                         help='')
-    parser.add_argument('--temperature', default=0.5, type=float, help='Temperature used in softmax')
-    parser.add_argument('--clip', default=1e10, type=float, help='Gradient clipping')
-    parser.add_argument('--k', default=200, type=int, help='Top k most similar images used to predict the label')
+    parser.add_argument('--temperature', default=0.5,
+                        type=float, help='Temperature used in softmax')
+    parser.add_argument('--clip', default=1e10, type=float,
+                        help='Gradient clipping')
+    parser.add_argument('--k', default=200, type=int,
+                        help='Top k most similar images used to predict the label')
 
     args = parser.parse_args()
 

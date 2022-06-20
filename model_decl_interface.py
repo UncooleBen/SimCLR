@@ -1,5 +1,6 @@
 import torch.nn as nn
 
+
 class IDeclModule(nn.Module):
     def __init__(self):
         super(IDeclModule, self).__init__()
@@ -37,7 +38,7 @@ class IDeclModule(nn.Module):
     # used for the last module
     def get_feature(self, x):
         raise NotImplementedError()
-    
+
     def get_update_count(self):
         raise NotImplementedError()
 
@@ -70,6 +71,3 @@ class IDeclModule(nn.Module):
 
     def set_dg(self, dg_1, dg_2):
         raise NotImplementedError()
-
-
-    

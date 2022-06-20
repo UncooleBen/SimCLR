@@ -17,8 +17,10 @@ model_list = {}
 model = Model()
 
 if num_split == 2:
-    model_list[0] = nn.Sequential(model.f[0], model.f[1], model.f[2], model.f[3], model.f[4])
-    model_list[1] = nn.Sequential(model.f[5], model.f[6], model.f[7], Flatten(), model.g)
+    model_list[0] = nn.Sequential(
+        model.f[0], model.f[1], model.f[2], model.f[3], model.f[4])
+    model_list[1] = nn.Sequential(
+        model.f[5], model.f[6], model.f[7], Flatten(), model.g)
 
 
 class DeclModuleImpl(IDeclModule):
@@ -138,13 +140,13 @@ class DeclModuleImpl(IDeclModule):
 
     def inc_update_count(self):
         self.update_count += 1
-    
+
     def clear_update_count(self):
         self.update_count = 0
 
     def get_input_grad(self):
         return self.input_grad_1, self.input_grad_2
-    
+
     def set_input_grad(self, input_grad_1, input_grad_2):
         self.input_grad_1 = input_grad_1
         self.input_grad_2 = input_grad_2
@@ -229,7 +231,8 @@ scheduler = {}
 for m in model_list:
     model_list[m] = model_list[m].to(device[m])
     # 使用adam优化器
-    optimizer[m] = optim.Adam(model_list[m].parameters(), lr=1e-3, weight_decay=1e-6)
+    optimizer[m] = optim.Adam(
+        model_list[m].parameters(), lr=1e-3, weight_decay=1e-6)
 
     # scheduler[m] = LRS.MultiStepLR(optimizer[m], milestones=args.lr_decay_milestones, gamma=args.lr_decay_fact)
 
@@ -237,4 +240,5 @@ for m in model_list:
 module = {}
 
 for m in range(num_split):
-    module[m] = DeclModuleImpl(model=model_list[m], optimizer=optimizer[m], split_loc=m, num_split=num_split)
+    module[m] = DeclModuleImpl(
+        model=model_list[m], optimizer=optimizer[m], split_loc=m, num_split=num_split)
