@@ -13,7 +13,7 @@ import threading
 
 import utils
 from model import Model
-from model_decl import num_split, device, module
+from model_decl_nograph import num_split, device, module
 
 
 class AverageMeter(object):
