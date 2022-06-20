@@ -185,7 +185,8 @@ device = {}
 if torch.cuda.is_available():
     if mulgpu:
         for i in range(num_split):
-            device[i] = torch.device('cuda:' + str(i))
+            # Use gpu 2 3 to avoid gpu out of mem error
+            device[i] = torch.device('cuda:' + str(i + 2))
     else:
         for i in range(num_split):
             device[i] = torch.device('cuda:' + str(0))
