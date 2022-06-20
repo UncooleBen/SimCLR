@@ -83,7 +83,7 @@ class BuildDG(nn.Module):
             rev_grad_1 = True
         else:
             rev_grad_1 = False
-            print('no backward for aug1 in module {}'.format(self.module_num))
+            print('no backward for aug1 in module {} dg_1 is None {} input1 is None {}'.format(self.module_num, self.dg_1 is None, self.input_1[0] is None))
 
         # backward on aug2
         
@@ -95,7 +95,7 @@ class BuildDG(nn.Module):
             rev_grad_2 = True
         else:
             rev_grad_2 = False
-            print('no backward for aug2 in module {}'.format(self.module_num))
+            print('no backward for aug2 in module {} dg_2 is None {} input2 is None {}'.format(self.module_num, self.dg_2 is None, self.input_2[0] is None))
 
         self.update_count += 1
         return rev_grad_1 and rev_grad_2
