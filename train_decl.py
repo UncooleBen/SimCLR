@@ -12,8 +12,6 @@ import time
 import threading
 
 import utils
-from model import Model
-from model_decl import num_split, device, module
 
 
 class AverageMeter(object):
@@ -38,6 +36,8 @@ class AverageMeter(object):
         self.avg = self.sum / self.count
 
 # Broken
+
+
 def adjust_learning_rate(module, epoch, step, len_epoch):
     """LR schedule that should yield 76% converged accuracy with batch size 256"""
     for i in range(len(args.lr_decay_milestones)):
@@ -60,22 +60,6 @@ def adjust_learning_rate(module, epoch, step, len_epoch):
     return lr
 
 
-def accuracy(args, output, target, topk=(1,)):
-    """Computes the precision@k for the specified values of k"""
-    maxk = max(topk)
-    # args.batch_size = target.size(0)
-    return 0
-
-    _, pred = output.topk(maxk, 1, True, True)
-    pred = pred.t()
-    correct = pred.eq(target.view(1, -1).expand_as(pred))
-
-    res = []
-    for k in topk:
-        correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
-        res.append(correct_k.mul_(100.0 / args.batch_size))
-    return res
-
 def to_python_float(t):
     if hasattr(t, 'item'):
         return t.item()
@@ -86,49 +70,39 @@ def to_python_float(t):
 
 
 def trainfdg(module, input_1, input_2, args):
-    if not module.last_layer:
+    if not module.is_last_layer():
         if input_1 is not None and input_2 is not None:
             # print('not last and has aug1 aug2')
             module.train()
-            args.receive_grad[module.module_num] = module.backward()
+            args.receive_grad[module.get_module_num()] = module.backward()
 
-            if module.update_count >= args.ac_step:
+            if module.get_update_count() >= args.ac_step:
                 module.step()
                 module.zero_grad()
-                module.update_count = 0
+                module.clear_update_count()
 
-            output_1 = module(input_1)
-            output_2 = module(input_2)
-            # print(f'input_1 = {input_1.mean()}')
-            # print(f'input_2 = {input_2.mean()}')
-            #
-            # print(f'output_1 = {output_1.mean()}')
-            # print(f'output_2 = {output_2.mean()}')
-            module.output_1.append(output_1)
-            module.output_2.append(output_2)
+            module.set_input(input_1, input_2)
+            module.set_output(module.forward(input_1, free_grad=args.free_compute_graph), module.forward(
+                input_2, free_grad=args.free_compute_graph))
 
-            if not module.first_layer:
-                module.input_1.append(input_1)
-                module.input_2.append(input_2)
-                oldest_input_1 = module.input_1.popleft()
-                oldest_input_2 = module.input_2.popleft()
-                if oldest_input_1 is None or oldest_input_2 is None:
-                    print('no input gradients obtained in module {}'.format(
-                        module.module_num))
-                else:
-                    module.input_grad_1 = oldest_input_1.grad
-                    module.input_grad_2 = oldest_input_2.grad
+            oldest_input_1, oldest_input_2 = module.get_oldest_input()
 
-    elif module.last_layer:
+            if oldest_input_1 is None or oldest_input_2 is None:
+                print('no input gradients obtained in module {}'.format(
+                    module.get_module_num()))
+            elif not module.first_layer:
+                module.set_input_grad(oldest_input_1.grad, oldest_input_2.grad)
+
+    elif module.is_last_layer():
         if input_1 is not None and input_2 is not None:
             # print(f'last and has aug1 aug2')
             module.train()
             # choose mode B
-            if args.receive_grad[module.module_num - 1] is True:
-                if module.update_count >= args.ac_step:
+            if args.receive_grad[module.get_module_num() - 1] is True:
+                if module.get_update_count() >= args.ac_step:
                     module.step()
                     module.zero_grad()
-                    module.update_count = 0
+                    module.clear_update_count()
             else:
                 pass
             # print(f'input_1 = {input_1.mean()}')
@@ -163,15 +137,10 @@ def trainfdg(module, input_1, input_2, args):
             loss = (- torch.log(pos_sim / sim_matrix.sum(dim=-1))).mean()
             # print(f'loss = {loss}')
             loss.backward()
-            module.update_count += 1
+            module.inc_update_count()
             # Update loss to module
-            module.loss = loss
-
-            # TODO: Update accuracy
-            acc1 = accuracy(args, output_1.data, output_2.data, topk=(1,))
-            module.input_grad_1 = input_1.grad
-            module.input_grad_2 = input_2.grad
-            module.acc = acc1
+            module.set_loss(loss.detach())
+            module.set_input_grad(input_1.grad, input_2.grad)
         else:
             pass
 
@@ -184,6 +153,7 @@ def train_decl(train_loader, module, epoch, args):
     pbar = tqdm(enumerate(train_loader), desc='Training Epoch {}/{}'.format(str(epoch + 1), args.epochs),
                 total=len(train_loader), unit='batch')
 
+    # TODO: CHECK IF THE FOLLOWING OBJECTS SHOULD BE DELETED
     # 可记录单次和平均时间
     batch_time = AverageMeter()
     data_time = AverageMeter()
@@ -192,6 +162,9 @@ def train_decl(train_loader, module, epoch, args):
     top1 = AverageMeter()
     top5 = AverageMeter()
     end = time.time()
+
+    # 用于计算每个epoch中的平均loss
+    total_loss, total_num = 0.0, 0
 
     # pos_i: [batch_size, 3, 32, 32]
     # 总的输入batch为 2*batch_size, neg_sample数量为 2*batch_size - 1
@@ -228,7 +201,8 @@ def train_decl(train_loader, module, epoch, args):
         # Set previous module's output as current module's input for next round
         from torch.autograd import Variable
         for m in reversed(range(1, num_split)):
-            previous_module_output_1, previous_module_output_2 = module[m-1].get_output()
+            previous_module_output_1, previous_module_output_2 = module[m-1].get_output(
+            )
             # del args.input_info1[m]
             args.input_info1[m] = Variable(previous_module_output_1.detach().clone().to(
                 device[m]), requires_grad=True) if previous_module_output_1 is not None else None
@@ -237,38 +211,33 @@ def train_decl(train_loader, module, epoch, args):
                 device[m]), requires_grad=True) if previous_module_output_2 is not None else None
         # Set current module's delayed grad as next module's input_grad for next round
         for m in range(num_split-1):
-            # del module[m].dg_1
-            module[m].dg_1 = module[m+1].input_grad_1.clone().to(device[m]
-                                                                 ) if module[m+1].input_grad_1 is not None else None
-            # del module[m+1].input_grad_1
-            module[m + 1].input_grad_1 = None
-
-            # del module[m].dg_2
-            module[m].dg_2 = module[m+1].input_grad_2.clone().to(device[m]
-                                                                 ) if module[m+1].input_grad_2 is not None else None
-            # del module[m + 1].input_grad_2
-            module[m + 1].input_grad_2 = None
+            next_module_input_grads_1, next_module_input_grads_2 = module[m+1].get_input_grad(
+            )
+            next_module_input_grads_1 = next_module_input_grads_1.clone().to(
+                device[m]) if next_module_input_grads_1 is not None else None
+            next_module_input_grads_2 = next_module_input_grads_2.clone().to(
+                device[m]) if next_module_input_grads_2 is not None else None
+            module[m].set_dg(next_module_input_grads_1,
+                             next_module_input_grads_2)
         # TODO: Compute communication time
         # HERE
-        # TODO: Update accuracy
         last_idx = num_split - 1
-        if module[last_idx].acc != 0:
-            top1.update(to_python_float(
-                module[last_idx].acc), args.batch_size)
-            top5.update(to_python_float(
-                module[last_idx].acc5), args.batch_size)
-        if module[last_idx].loss != 0:
-            losses.update(to_python_float(module[last_idx].loss), args.batch_size)
+        if module[last_idx].get_loss() != 0:
+            losses.update(to_python_float(
+                module[last_idx].get_loss()), args.batch_size)
 
-        pbar.set_description('Train Epoch: [{}/{}] Loss: {:.4f}'.format(epoch, args.epochs, module[last_idx].loss))
+        total_num += args.batch_size
+        total_loss += module[last_idx].get_loss() * args.batch_size
+        pbar.set_description(
+            'Train Epoch: [{}/{}] Loss: {:.4f}'.format(epoch, args.epochs, total_loss / total_num))
 
-    return module[last_idx].loss
+    return total_loss / total_num
 
 
 # Validation for one epoch (using KNN)
 def test(memory_data_loader, test_data_loader, module, epoch, args):
     for m in range(num_split):
-        module[m].eval()
+        module[m].model.eval()
 
     total_top1, total_top5, total_num, feature_bank = 0.0, 0.0, 0, []
 
@@ -276,10 +245,12 @@ def test(memory_data_loader, test_data_loader, module, epoch, args):
         # generate feature bank
         for data, _, target in tqdm(memory_data_loader, desc='Feature extracting'):
             # 迭代num_split个module获取f输出的feature
-            feature = data
+            feature = data.to(device[0], non_blocking=True)
+
             for m in range(num_split):
                 if m != num_split - 1:
                     feature = module[m](feature)
+                    feature = feature.to(device[m + 1])
                 else:
                     # 最后一个module只输出f的output
                     feature = module[m].get_feature(feature)
@@ -289,16 +260,18 @@ def test(memory_data_loader, test_data_loader, module, epoch, args):
         # [D, N]
         feature_bank = torch.cat(feature_bank, dim=0).t().contiguous()
         # [N]
-        feature_labels = torch.tensor(memory_data_loader.dataset.targets, device=feature_bank.device)
+        feature_labels = torch.tensor(
+            memory_data_loader.dataset.targets, device=feature_bank.device)
         # loop test data to predict the label by weighted knn search
         test_bar = tqdm(test_data_loader)
         for data, _, target in test_bar:
-            data, target = data.cuda(device='cuda:2', non_blocking=True), target.cuda(device='cuda:2',
+            data, target = data.cuda(device='cuda:2', non_blocking=True), target.cuda(device=feature_bank.device,
                                                                                       non_blocking=True)
-            feature = data
+            feature = data.to(device[0], non_blocking=True)
             for m in range(num_split):
                 if m != num_split - 1:
                     feature = module[m](feature)
+                    feature = feature.to(device[m + 1])
                 else:
                     # 最后一个module只输出f的output
                     feature = module[m].get_feature(feature)
@@ -309,19 +282,25 @@ def test(memory_data_loader, test_data_loader, module, epoch, args):
             # [B, K]
             sim_weight, sim_indices = sim_matrix.topk(k=args.k, dim=-1)
             # [B, K]
-            sim_labels = torch.gather(feature_labels.expand(data.size(0), -1), dim=-1, index=sim_indices)
+            sim_labels = torch.gather(feature_labels.expand(
+                data.size(0), -1), dim=-1, index=sim_indices)
             sim_weight = (sim_weight / args.temperature).exp()
 
             # counts for each class
-            one_hot_label = torch.zeros(data.size(0) * args.k, args.c, device=sim_labels.device)
+            one_hot_label = torch.zeros(
+                data.size(0) * args.k, args.c, device=sim_labels.device)
             # [B*K, C]
-            one_hot_label = one_hot_label.scatter(dim=-1, index=sim_labels.view(-1, 1), value=1.0)
+            one_hot_label = one_hot_label.scatter(
+                dim=-1, index=sim_labels.view(-1, 1), value=1.0)
             # weighted score ---> [B, C]
-            pred_scores = torch.sum(one_hot_label.view(data.size(0), -1, args.c) * sim_weight.unsqueeze(dim=-1), dim=1)
+            pred_scores = torch.sum(one_hot_label.view(
+                data.size(0), -1, args.c) * sim_weight.unsqueeze(dim=-1), dim=1)
 
             pred_labels = pred_scores.argsort(dim=-1, descending=True)
-            total_top1 += torch.sum((pred_labels[:, :1] == target.unsqueeze(dim=-1)).any(dim=-1).float()).item()
-            total_top5 += torch.sum((pred_labels[:, :5] == target.unsqueeze(dim=-1)).any(dim=-1).float()).item()
+            total_top1 += torch.sum(
+                (pred_labels[:, :1] == target.unsqueeze(dim=-1)).any(dim=-1).float()).item()
+            total_top5 += torch.sum(
+                (pred_labels[:, :5] == target.unsqueeze(dim=-1)).any(dim=-1).float()).item()
             test_bar.set_description('Test Epoch: [{}/{}] Acc@1:{:.2f}% Acc@5:{:.2f}%'
                                      .format(epoch, args.epochs, total_top1 / total_num * 100, total_top5 / total_num * 100))
 
@@ -329,6 +308,13 @@ def test(memory_data_loader, test_data_loader, module, epoch, args):
 
 
 def main():
+    # Load 不同的 decl implementation 到 global scope
+    global num_split, device, module
+    if args.free_compute_graph:
+        from model_decl_nograph import num_split, device, module
+    else:
+        from model_decl_vanilla import num_split, device, module
+
     # define data loader
     # 此处均为CIFAR10
     # num_workers 16改为0
@@ -364,7 +350,8 @@ def main():
         train_loss = train_decl(train_loader, module, epoch, args)
         results['train_loss'].append(train_loss)
 
-        test_acc_1, test_acc_5 = test(memory_loader, test_loader, module, epoch, args)
+        test_acc_1, test_acc_5 = test(
+            memory_loader, test_loader, module, epoch, args)
         results['test_acc@1'].append(test_acc_1)
         results['test_acc@5'].append(test_acc_5)
 
@@ -374,17 +361,20 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(
         description='SimCLR in decoupled training')
-    parser.add_argument('--batch-size', type=int, default=128,
-                        help='input batch size for training (default: 128)')
+    parser.add_argument('--batch-size', type=int, default=64,
+                        help='input batch size for training (default: 64)')
     parser.add_argument('--epochs', type=int, default=1,
                         help='number of epochs to train (default: 1)')
     parser.add_argument('-free-compute-graph', type=bool, default=False,
                         help='Whether to free compute graph of aug1')
     parser.add_argument('--ac-step', type=int, default=1,
                         help='')
-    parser.add_argument('--temperature', default=0.5, type=float, help='Temperature used in softmax')
-    parser.add_argument('--clip', default=1e10, type=float, help='Gradient clipping')
-    parser.add_argument('--k', default=200, type=int, help='Top k most similar images used to predict the label')
+    parser.add_argument('--temperature', default=0.5,
+                        type=float, help='Temperature used in softmax')
+    parser.add_argument('--clip', default=1e10, type=float,
+                        help='Gradient clipping')
+    parser.add_argument('--k', default=200, type=int,
+                        help='Top k most similar images used to predict the label')
 
     args = parser.parse_args()
 

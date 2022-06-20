@@ -113,7 +113,7 @@ if __name__ == '__main__':
     test_data = utils.CIFAR10Pair(root='data', train=False, transform=utils.test_transform, download=True)
     test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=True)
 
-    device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(device)
 
     # # model setup and optimizer config
@@ -123,7 +123,7 @@ if __name__ == '__main__':
     # device_ids = [0, 1]
     model = Model(feature_dim)
     model = model.to(device)
-    model = torch.nn.DataParallel(model, device_ids=[2, 3])
+    model = torch.nn.DataParallel(model, device_ids=[0, 1])
 
     # # 获得模型的参数量和计算量
     # flops, params = profile(model, inputs=(torch.randn(1, 3, 32, 32).cuda(),))
