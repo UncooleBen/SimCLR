@@ -97,21 +97,27 @@ def trainfdg(module, input_1, input_2, args):
                 module.zero_grad()
                 module.update_count = 0
 
-            module.output_1 = module.forward_nograd(input_1)
-            module.output_2 = module.forward_nograd(input_2)
+            output_1 = module(input_1)
+            output_2 = module(input_2)
             # print(f'input_1 = {input_1.mean()}')
             # print(f'input_2 = {input_2.mean()}')
+            #
+            # print(f'output_1 = {output_1.mean()}')
+            # print(f'output_2 = {output_2.mean()}')
+            module.output_1.append(output_1)
+            module.output_2.append(output_2)
 
-            module.input_1.append(input_1)
-            module.input_2.append(input_2)
-            oldest_input_1 = module.input_1.popleft()
-            oldest_input_2 = module.input_2.popleft()
-            if oldest_input_1 is None or oldest_input_2 is None:
-                print('no input gradients obtained in module {}'.format(
-                    module.module_num))
-            elif not module.first_layer:
-                module.input_grad_1 = oldest_input_1.grad
-                module.input_grad_2 = oldest_input_2.grad
+            if not module.first_layer:
+                module.input_1.append(input_1)
+                module.input_2.append(input_2)
+                oldest_input_1 = module.input_1.popleft()
+                oldest_input_2 = module.input_2.popleft()
+                if oldest_input_1 is None or oldest_input_2 is None:
+                    print('no input gradients obtained in module {}'.format(
+                        module.module_num))
+                else:
+                    module.input_grad_1 = oldest_input_1.grad
+                    module.input_grad_2 = oldest_input_2.grad
 
     elif module.last_layer:
         if input_1 is not None and input_2 is not None:
@@ -372,7 +378,7 @@ if __name__ == '__main__':
                         help='input batch size for training (default: 128)')
     parser.add_argument('--epochs', type=int, default=1,
                         help='number of epochs to train (default: 1)')
-    parser.add_argument('-free-compute-graph', type=bool, default=True,
+    parser.add_argument('-free-compute-graph', type=bool, default=False,
                         help='Whether to free compute graph of aug1')
     parser.add_argument('--ac-step', type=int, default=1,
                         help='')
