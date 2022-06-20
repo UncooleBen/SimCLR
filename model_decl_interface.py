@@ -4,10 +4,7 @@ class IDeclModule(nn.Module):
     def __init__(self):
         super(IDeclModule, self).__init__()
 
-    def forward(self, x):
-        raise NotImplementedError()
-
-    def forward_nograd(self, x):
+    def forward(self, x, free_grad=False):
         raise NotImplementedError()
 
     def backward(self):

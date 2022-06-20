@@ -66,12 +66,11 @@ class DeclModuleImpl(IDeclModule):
 
         self.loss = 0
 
-    def forward(self, x):
-        return self.model(x)
-    
-    def forward_nograd(self, x):
-        res = None
-        with torch.no_grad():
+    def forward(self, x, free_grad=False):
+        if free_grad:
+            with torch.no_grad():
+                res = self.model(x)
+        else:
             res = self.model(x)
         return res
 

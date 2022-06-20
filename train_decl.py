@@ -78,10 +78,10 @@ def trainfdg(module, input_1, input_2, args):
                 module.clear_update_count()
 
             module.set_input(input_1, input_2)
-            module.set_output(module.forward_nograd(input_1), module.forward_nograd(input_2))
+            module.set_output(module.forward(input_1, free_grad=args.free_compute_graph), module.forward(input_2, free_grad=args.free_compute_graph))
 
             oldest_input_1, oldest_input_2 = module.get_oldest_input()
-            
+
             if oldest_input_1 is None or oldest_input_2 is None:
                 print('no input gradients obtained in module {}'.format(
                     module.get_module_num()))
@@ -205,9 +205,11 @@ def train_decl(train_loader, module, epoch, args):
                 device[m]), requires_grad=True) if previous_module_output_2 is not None else None
         # Set current module's delayed grad as next module's input_grad for next round
         for m in range(num_split-1):
-            next_module_input_grads = list(module[m+1].get_input_grad())
-            next_module_input_grads = list(map(lambda ele: ele.clone().to(device[m]) if ele is not None else None, next_module_input_grads))
-            module[m].set_dg(next_module_input_grads[0], next_module_input_grads[1])
+            next_module_input_grads_1, next_module_input_grads_2 = module[m+1].get_input_grad()
+            next_module_input_grads_1 = next_module_input_grads_1.clone().to(device[m]) if next_module_input_grads_1 is not None else None
+            next_module_input_grads_2 = next_module_input_grads_2.clone().to(
+                device[m]) if next_module_input_grads_2 is not None else None
+            module[m].set_dg(next_module_input_grads_1, next_module_input_grads_2)
         # TODO: Compute communication time
         # HERE
         last_idx = num_split - 1
@@ -340,8 +342,8 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(
         description='SimCLR in decoupled training')
-    parser.add_argument('--batch-size', type=int, default=128,
-                        help='input batch size for training (default: 128)')
+    parser.add_argument('--batch-size', type=int, default=64,
+                        help='input batch size for training (default: 64)')
     parser.add_argument('--epochs', type=int, default=1,
                         help='number of epochs to train (default: 1)')
     parser.add_argument('-free-compute-graph', type=bool, default=True,
