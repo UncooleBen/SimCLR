@@ -97,15 +97,10 @@ def trainfdg(module, input_1, input_2, args):
                 module.zero_grad()
                 module.update_count = 0
 
-            output_1 = module(input_1)
-            output_2 = module(input_2)
+            module.output_1 = module.forward_nograd(input_1)
+            module.output_2 = module.forward_nograd(input_2)
             # print(f'input_1 = {input_1.mean()}')
             # print(f'input_2 = {input_2.mean()}')
-            #
-            # print(f'output_1 = {output_1.mean()}')
-            # print(f'output_2 = {output_2.mean()}')
-            module.output_1.append(output_1)
-            module.output_2.append(output_2)
 
             if not module.first_layer:
                 module.input_1.append(input_1)
