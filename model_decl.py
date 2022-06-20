@@ -1,5 +1,7 @@
 import sys
 from collections import deque
+from typing import overload
+from model_decl_interface import IDeclModule
 
 import torch
 from torchvision.models.resnet import resnet50
@@ -20,9 +22,9 @@ if num_split == 2:
     model_list[1] = nn.Sequential(model.f[5], model.f[6], model.f[7], Flatten(), model.g)
 
 
-class BuildDG(nn.Module):
+class DeclModuleImpl(IDeclModule):
     def __init__(self, model, optimizer, split_loc, num_split):
-        super(BuildDG, self).__init__()
+        super(DeclModuleImpl, self).__init__()
 
         self.model = model
         self.optimizer = optimizer
@@ -62,7 +64,6 @@ class BuildDG(nn.Module):
             self.first_layer = False
             self.last_layer = False
 
-        self.acc = 0
         self.loss = 0
 
     def forward(self, x):
@@ -98,14 +99,26 @@ class BuildDG(nn.Module):
             rev_grad_2 = False
             print('no backward for aug2 in module {} dg_2 is None {} input2 is None {}'.format(self.module_num, self.dg_2 is None, self.input_2[0] is None))
 
-        self.update_count += 1
+        self.inc_update_count()
         return rev_grad_1 and rev_grad_2
 
     def get_grad(self):
         return self.input_1.popleft().grad, self.input_2.popleft().grad
 
+
+    def set_output(self, output_1, output_2):
+        self.output_1 = output_1
+        self.output_2 = output_2
+
     def get_output(self):
         return self.output_1, self.output_2
+
+    def set_input(self, input_1, input_2):
+        self.input_1.append(input_1)
+        self.input_2.append(input_2)
+
+    def get_oldest_input(self):
+        return self.input_1.popleft(), self.input_2.popleft()
 
     def train(self):
         self.model.train()
@@ -126,6 +139,42 @@ class BuildDG(nn.Module):
         else:
             return None
 
+    def get_update_count(self):
+        return self.update_count
+
+    def inc_update_count(self):
+        self.update_count += 1
+    
+    def clear_update_count(self):
+        self.update_count = 0
+
+    def get_input_grad(self):
+        return self.input_grad_1, self.input_grad_2
+
+    def set_input_grad(self, input_grad_1, input_grad_2):
+        self.input_grad_1 = input_grad_1
+        self.input_grad_2 = input_grad_2
+
+    def get_module_num(self):
+        return self.module_num
+
+    def is_last_layer(self):
+        return self.last_layer
+
+    def is_first_layer(self):
+        return self.first_layer
+
+    def set_loss(self, loss):
+        self.loss = loss
+
+    def get_loss(self):
+        return self.loss
+
+    def set_dg(self, dg_1, dg_2):
+        self.dg_1 = dg_1
+        self.dg_2 = dg_2
+
+    
 
 # set devices
 mulgpu = 1
@@ -196,7 +245,7 @@ for m in model_list:
 module = {}
 
 for m in range(num_split):
-    module[m] = BuildDG(model=model_list[m], optimizer=optimizer[m], split_loc=m, num_split=num_split)
+    module[m] = DeclModuleImpl(model=model_list[m], optimizer=optimizer[m], split_loc=m, num_split=num_split)
 
 
 # test for feature forwarding

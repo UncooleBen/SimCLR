@@ -59,23 +59,6 @@ def adjust_learning_rate(module, epoch, step, len_epoch):
 
     return lr
 
-
-def accuracy(args, output, target, topk=(1,)):
-    """Computes the precision@k for the specified values of k"""
-    maxk = max(topk)
-    # args.batch_size = target.size(0)
-    return 0
-
-    _, pred = output.topk(maxk, 1, True, True)
-    pred = pred.t()
-    correct = pred.eq(target.view(1, -1).expand_as(pred))
-
-    res = []
-    for k in topk:
-        correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
-        res.append(correct_k.mul_(100.0 / args.batch_size))
-    return res
-
 def to_python_float(t):
     if hasattr(t, 'item'):
         return t.item()
@@ -86,43 +69,38 @@ def to_python_float(t):
 
 
 def trainfdg(module, input_1, input_2, args):
-    if not module.last_layer:
+    if not module.is_last_layer():
         if input_1 is not None and input_2 is not None:
             # print('not last and has aug1 aug2')
             module.train()
-            args.receive_grad[module.module_num] = module.backward()
+            args.receive_grad[module.get_module_num()] = module.backward()
 
-            if module.update_count >= args.ac_step:
+            if module.get_update_count() >= args.ac_step:
                 module.step()
                 module.zero_grad()
-                module.update_count = 0
+                module.clear_update_count()
 
-            module.output_1 = module.forward_nograd(input_1)
-            module.output_2 = module.forward_nograd(input_2)
-            # print(f'input_1 = {input_1.mean()}')
-            # print(f'input_2 = {input_2.mean()}')
+            module.set_input(input_1, input_2)
+            module.set_output(module.forward_nograd(input_1), module.forward_nograd(input_2))
 
-            module.input_1.append(input_1)
-            module.input_2.append(input_2)
-            oldest_input_1 = module.input_1.popleft()
-            oldest_input_2 = module.input_2.popleft()
+            oldest_input_1, oldest_input_2 = module.get_oldest_input()
+            
             if oldest_input_1 is None or oldest_input_2 is None:
                 print('no input gradients obtained in module {}'.format(
-                    module.module_num))
+                    module.get_module_num()))
             elif not module.first_layer:
-                module.input_grad_1 = oldest_input_1.grad
-                module.input_grad_2 = oldest_input_2.grad
+                module.set_input_grad(oldest_input_1.grad, oldest_input_2.grad)
 
-    elif module.last_layer:
+    elif module.is_last_layer():
         if input_1 is not None and input_2 is not None:
             # print(f'last and has aug1 aug2')
             module.train()
             # choose mode B
-            if args.receive_grad[module.module_num - 1] is True:
-                if module.update_count >= args.ac_step:
+            if args.receive_grad[module.get_module_num() - 1] is True:
+                if module.get_update_count() >= args.ac_step:
                     module.step()
                     module.zero_grad()
-                    module.update_count = 0
+                    module.clear_update_count()
             else:
                 pass
             # print(f'input_1 = {input_1.mean()}')
@@ -157,15 +135,10 @@ def trainfdg(module, input_1, input_2, args):
             loss = (- torch.log(pos_sim / sim_matrix.sum(dim=-1))).mean()
             # print(f'loss = {loss}')
             loss.backward()
-            module.update_count += 1
+            module.inc_update_count()
             # Update loss to module
-            module.loss = loss.detach()
-
-            # TODO: Update accuracy
-            acc1 = accuracy(args, output_1.data, output_2.data, topk=(1,))
-            module.input_grad_1 = input_1.grad
-            module.input_grad_2 = input_2.grad
-            module.acc = acc1
+            module.set_loss(loss.detach())
+            module.set_input_grad(input_1.grad, input_2.grad)
         else:
             pass
 
@@ -235,31 +208,17 @@ def train_decl(train_loader, module, epoch, args):
                 device[m]), requires_grad=True) if previous_module_output_2 is not None else None
         # Set current module's delayed grad as next module's input_grad for next round
         for m in range(num_split-1):
-            # del module[m].dg_1
-            module[m].dg_1 = module[m+1].input_grad_1.clone().to(device[m]
-                                                                 ) if module[m+1].input_grad_1 is not None else None
-            # del module[m+1].input_grad_1
-            module[m + 1].input_grad_1 = None
-
-            # del module[m].dg_2
-            module[m].dg_2 = module[m+1].input_grad_2.clone().to(device[m]
-                                                                 ) if module[m+1].input_grad_2 is not None else None
-            # del module[m + 1].input_grad_2
-            module[m + 1].input_grad_2 = None
+            next_module_input_grads = module[m+1].get_input_grad()
+            next_module_input_grads = map(next_module_input_grads, lambda ele: ele.clone().to(device[m]) if ele is not None else None)
+            module[m + 1].set_input_grad(next_module_input_grads[0], next_module_input_grads[1])
         # TODO: Compute communication time
         # HERE
-        # TODO: Update accuracy
         last_idx = num_split - 1
-        if module[last_idx].acc != 0:
-            top1.update(to_python_float(
-                module[last_idx].acc), args.batch_size)
-            top5.update(to_python_float(
-                module[last_idx].acc5), args.batch_size)
-        if module[last_idx].loss != 0:
-            losses.update(to_python_float(module[last_idx].loss), args.batch_size)
+        if module[last_idx].get_loss() != 0:
+            losses.update(to_python_float(module[last_idx].get_loss()), args.batch_size)
 
         total_num += args.batch_size
-        total_loss += module[last_idx].loss * args.batch_size
+        total_loss += module[last_idx].get_loss() * args.batch_size
         pbar.set_description('Train Epoch: [{}/{}] Loss: {:.4f}'.format(epoch, args.epochs, total_loss / total_num))
 
     return total_loss / total_num
