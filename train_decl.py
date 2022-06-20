@@ -159,7 +159,7 @@ def trainfdg(module, input_1, input_2, args):
             loss.backward()
             module.update_count += 1
             # Update loss to module
-            module.loss = loss
+            module.loss = loss.detach()
 
             # TODO: Update accuracy
             acc1 = accuracy(args, output_1.data, output_2.data, topk=(1,))
@@ -178,6 +178,7 @@ def train_decl(train_loader, module, epoch, args):
     pbar = tqdm(enumerate(train_loader), desc='Training Epoch {}/{}'.format(str(epoch + 1), args.epochs),
                 total=len(train_loader), unit='batch')
 
+    # TODO: CHECK IF THE FOLLOWING OBJECTS SHOULD BE DELETED
     # 可记录单次和平均时间
     batch_time = AverageMeter()
     data_time = AverageMeter()
@@ -186,6 +187,9 @@ def train_decl(train_loader, module, epoch, args):
     top1 = AverageMeter()
     top5 = AverageMeter()
     end = time.time()
+
+    # 用于计算每个epoch中的平均loss
+    total_loss, total_num = 0.0, 0
 
     # pos_i: [batch_size, 3, 32, 32]
     # 总的输入batch为 2*batch_size, neg_sample数量为 2*batch_size - 1
@@ -254,15 +258,17 @@ def train_decl(train_loader, module, epoch, args):
         if module[last_idx].loss != 0:
             losses.update(to_python_float(module[last_idx].loss), args.batch_size)
 
-        pbar.set_description('Train Epoch: [{}/{}] Loss: {:.4f}'.format(epoch, args.epochs, module[last_idx].loss))
+        total_num += args.batch_size
+        total_loss += module[last_idx].loss * args.batch_size
+        pbar.set_description('Train Epoch: [{}/{}] Loss: {:.4f}'.format(epoch, args.epochs, total_loss / total_num))
 
-    return module[last_idx].loss
+    return total_loss / total_num
 
 
 # Validation for one epoch (using KNN)
 def test(memory_data_loader, test_data_loader, module, epoch, args):
     for m in range(num_split):
-        module[m].eval()
+        module[m].model.eval()
 
     total_top1, total_top5, total_num, feature_bank = 0.0, 0.0, 0, []
 
@@ -270,10 +276,12 @@ def test(memory_data_loader, test_data_loader, module, epoch, args):
         # generate feature bank
         for data, _, target in tqdm(memory_data_loader, desc='Feature extracting'):
             # 迭代num_split个module获取f输出的feature
-            feature = data
+            feature = data.to(device[0], non_blocking=True)
+
             for m in range(num_split):
                 if m != num_split - 1:
                     feature = module[m](feature)
+                    feature = feature.to(device[m + 1])
                 else:
                     # 最后一个module只输出f的output
                     feature = module[m].get_feature(feature)
@@ -287,12 +295,13 @@ def test(memory_data_loader, test_data_loader, module, epoch, args):
         # loop test data to predict the label by weighted knn search
         test_bar = tqdm(test_data_loader)
         for data, _, target in test_bar:
-            data, target = data.cuda(device='cuda:2', non_blocking=True), target.cuda(device='cuda:2',
+            data, target = data.cuda(device='cuda:2', non_blocking=True), target.cuda(device=feature_bank.device,
                                                                                       non_blocking=True)
-            feature = data
+            feature = data.to(device[0], non_blocking=True)
             for m in range(num_split):
                 if m != num_split - 1:
                     feature = module[m](feature)
+                    feature = feature.to(device[m + 1])
                 else:
                     # 最后一个module只输出f的output
                     feature = module[m].get_feature(feature)

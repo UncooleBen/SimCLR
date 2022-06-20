@@ -44,6 +44,7 @@ class BuildDG(nn.Module):
         #     self.output_2.append(None)
         self.input_1 = deque(maxlen=self.delay + 1)
         self.input_2 = deque(maxlen=self.delay + 1)
+
         for _ in range(self.delay + 1):
             self.input_1.append(None)
             self.input_2.append(None)
@@ -118,7 +119,7 @@ class BuildDG(nn.Module):
     # used for the last module
     def get_feature(self, x):
         if self.last_layer:
-            feature = model[:-1](x)
+            feature = self.model[:-1](x)
             # 1 * 2048
             feature = F.normalize(feature, dim=-1)
             return feature
@@ -196,3 +197,19 @@ module = {}
 
 for m in range(num_split):
     module[m] = BuildDG(model=model_list[m], optimizer=optimizer[m], split_loc=m, num_split=num_split)
+
+
+# test for feature forwarding
+# feature = torch.randn(1, 3, 224, 224).to(device[0])
+# for m in range(num_split):
+#     if m != num_split - 1:
+#         feature = module[m](feature)
+#         feature = feature.to(device[m + 1])
+#         print(feature.device)
+#     else:
+#     # 最后一个module只输出f的output
+#         print(next(module[m].parameters()).device)
+#         feature = module[m].get_feature(feature)
+#
+# print(feature)
+# print(feature.size())
