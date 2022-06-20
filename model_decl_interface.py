@@ -71,3 +71,6 @@ class IDeclModule(nn.Module):
 
     def set_dg(self, dg_1, dg_2):
         raise NotImplementedError()
+
+    def save_to(self, filepath):
+        raise NotImplementedError()
