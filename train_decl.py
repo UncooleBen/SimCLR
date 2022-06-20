@@ -12,9 +12,6 @@ import time
 import threading
 
 import utils
-from model import Model
-from model_decl_nograph import num_split, device, module
-
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -291,6 +288,13 @@ def test(memory_data_loader, test_data_loader, module, epoch, args):
 
 
 def main():
+    # Load 不同的 decl implementation 到 global scope
+    global num_split, device, module
+    if args.free_compute_graph:
+        from model_decl_nograph import num_split, device, module
+    else:
+        from model_decl_vanilla import num_split, device, module
+
     # define data loader
     # 此处均为CIFAR10
     # num_workers 16改为0
