@@ -208,9 +208,9 @@ def train_decl(train_loader, module, epoch, args):
                 device[m]), requires_grad=True) if previous_module_output_2 is not None else None
         # Set current module's delayed grad as next module's input_grad for next round
         for m in range(num_split-1):
-            next_module_input_grads = module[m+1].get_input_grad()
-            next_module_input_grads = map(next_module_input_grads, lambda ele: ele.clone().to(device[m]) if ele is not None else None)
-            module[m + 1].set_input_grad(next_module_input_grads[0], next_module_input_grads[1])
+            next_module_input_grads = list(module[m+1].get_input_grad())
+            next_module_input_grads = list(map(lambda ele: ele.clone().to(device[m]) if ele is not None else None, next_module_input_grads))
+            module[m].set_dg(next_module_input_grads[0], next_module_input_grads[1])
         # TODO: Compute communication time
         # HERE
         last_idx = num_split - 1

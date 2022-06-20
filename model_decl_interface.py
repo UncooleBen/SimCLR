@@ -1,8 +1,8 @@
 import torch.nn as nn
 
 class IDeclModule(nn.Module):
-    def __init__(self, model, optimizer, split_loc, num_split):
-        pass
+    def __init__(self):
+        super(IDeclModule, self).__init__()
 
     def forward(self, x):
         raise NotImplementedError()

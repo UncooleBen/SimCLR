@@ -183,8 +183,7 @@ device = {}
 if torch.cuda.is_available():
     if mulgpu:
         for i in range(num_split):
-            # use gpu 2 gpu 3 to avoid gpu out of memory
-            device[i] = torch.device('cuda:' + str(i + 2))
+            device[i] = torch.device('cuda:' + str(i))
     else:
         for i in range(num_split):
             device[i] = torch.device('cuda:' + str(0))
