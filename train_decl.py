@@ -13,31 +13,7 @@ import threading
 
 import utils
 
-
-class AverageMeter(object):
-    """Computes and stores the average and current value"""
-
-    def __init__(self):
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
-
-    def reset(self):
-        self.val = 0
-        self.avg = 0
-        self.sum = 0
-        self.count = 0
-
-    def update(self, val, n=1):
-        self.val = val
-        self.sum += val * n
-        self.count += n
-        self.avg = self.sum / self.count
-
 # Broken
-
-
 def adjust_learning_rate(module, epoch, step, len_epoch):
     """LR schedule that should yield 76% converged accuracy with batch size 256"""
     for i in range(len(args.lr_decay_milestones)):
@@ -67,8 +43,6 @@ def to_python_float(t):
         return t[0]
 
 # input_1, input_2分别为两个augmentation图片的输出
-
-
 def trainfdg(module, input_1, input_2, args):
     if not module.is_last_layer():
         if input_1 is not None and input_2 is not None:
@@ -105,20 +79,15 @@ def trainfdg(module, input_1, input_2, args):
                     module.clear_update_count()
             else:
                 pass
-            # print(f'input_1 = {input_1.mean()}')
-            # print(f'input_2 = {input_2.mean()}')
             output_1 = module(input_1)
             output_2 = module(input_2)
 
             # 最后一层对输出向量归一化后计算loss
             output_1 = F.normalize(output_1, dim=-1)
             output_2 = F.normalize(output_2, dim=-1)
-            # print(f'output_1 = {output_1}')
-            # print(f'output_2 = {output_2}')
             # compute simclr loss
             # [2*B, D]
             out = torch.cat([output_1, output_2], dim=0)
-            # print(f'out= {torch.norm(out, 2, dim=1)}')
             # [2*B, 2*B]
             sim_matrix = torch.exp(
                 torch.mm(out, out.t().contiguous()) / args.temperature)
@@ -127,15 +96,12 @@ def trainfdg(module, input_1, input_2, args):
             # [2*B, 2*B-1]
             sim_matrix = sim_matrix.masked_select(
                 mask).view(2 * args.batch_size, -1)
-            # print(f'sim_matrix= {sim_matrix}')
             # compute loss
             pos_sim = torch.exp(
                 torch.sum(output_1 * output_2, dim=-1) / args.temperature)
-            # print(f'pos_sim = {pos_sim}')
             # [2*B]
             pos_sim = torch.cat([pos_sim, pos_sim], dim=0)
             loss = (- torch.log(pos_sim / sim_matrix.sum(dim=-1))).mean()
-            # print(f'loss = {loss}')
             loss.backward()
             module.inc_update_count()
             # Update loss to module
@@ -153,23 +119,12 @@ def train_decl(train_loader, module, epoch, args):
     pbar = tqdm(enumerate(train_loader), desc='Training Epoch {}/{}'.format(str(epoch + 1), args.epochs),
                 total=len(train_loader), unit='batch')
 
-    # TODO: CHECK IF THE FOLLOWING OBJECTS SHOULD BE DELETED
-    # 可记录单次和平均时间
-    batch_time = AverageMeter()
-    data_time = AverageMeter()
-    com_time = AverageMeter()  # 通信时间
-    losses = AverageMeter()
-    top1 = AverageMeter()
-    top5 = AverageMeter()
-    end = time.time()
-
     # 用于计算每个epoch中的平均loss
     total_loss, total_num = 0.0, 0
 
     # pos_i: [batch_size, 3, 32, 32]
     # 总的输入batch为 2*batch_size, neg_sample数量为 2*batch_size - 1
     for i, (pos_1, pos_2, _) in pbar:
-        # print(f'i = {i}')
         # lr = adjust_learning_rate(
         #   module=module, epoch=epoch, step=i, len_epoch=len(train_loader))
         data_time.update(time.time() - end)
@@ -197,16 +152,13 @@ def train_decl(train_loader, module, epoch, args):
         # for m in range(num_split):
         #     trainfdg(module[m], args.input_info1[m], args.input_info2[m], args)
 
-        # TODO: Communication
         # Set previous module's output as current module's input for next round
         from torch.autograd import Variable
         for m in reversed(range(1, num_split)):
             previous_module_output_1, previous_module_output_2 = module[m-1].get_output(
             )
-            # del args.input_info1[m]
             args.input_info1[m] = Variable(previous_module_output_1.detach().clone().to(
                 device[m]), requires_grad=True) if previous_module_output_1 is not None else None
-            # del args.input_info2[m]
             args.input_info2[m] = Variable(previous_module_output_2.detach().clone().to(
                 device[m]), requires_grad=True) if previous_module_output_2 is not None else None
         # Set current module's delayed grad as next module's input_grad for next round
@@ -220,12 +172,7 @@ def train_decl(train_loader, module, epoch, args):
             module[m].set_dg(next_module_input_grads_1,
                              next_module_input_grads_2)
         # TODO: Compute communication time
-        # HERE
         last_idx = num_split - 1
-        if module[last_idx].get_loss() != 0:
-            losses.update(to_python_float(
-                module[last_idx].get_loss()), args.batch_size)
-
         total_num += args.batch_size
         total_loss += module[last_idx].get_loss() * args.batch_size
         pbar.set_description(

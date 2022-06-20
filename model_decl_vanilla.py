@@ -79,8 +79,6 @@ class DeclModuleImpl(IDeclModule):
         if self.dg_1 is not None and oldest_output_1 is not None:
             rev_grad_1 = True
             oldest_output_1.backward(self.dg_1)
-            del self.dg_1
-            self.dg_1 = None
         else:
             rev_grad_1 = False
             print('no backward for aug1 in module {}'.format(self.module_num))
@@ -90,8 +88,6 @@ class DeclModuleImpl(IDeclModule):
         if self.dg_2 is not None and oldest_output_2 is not None:
             rev_grad_2 = True
             oldest_output_2.backward(self.dg_2)
-            del self.dg_2
-            self.dg_2 = None
         else:
             rev_grad_2 = False
             print('no backward for aug2 in module {}'.format(self.module_num))
