@@ -16,8 +16,8 @@ model_list = {}
 model = Model()
 
 if num_split == 2:
-    model_list[0] = nn.Sequential(model.f[0], model.f[1], model.f[2], model.f[3])
-    model_list[1] = nn.Sequential(model.f[4], model.f[5], model.f[6], model.f[7], Flatten(), model.g)
+    model_list[0] = nn.Sequential(model.f[0], model.f[1], model.f[2], model.f[3], model.f[4])
+    model_list[1] = nn.Sequential(model.f[5], model.f[6], model.f[7], Flatten(), model.g)
 
 
 class BuildDG(nn.Module):
@@ -67,26 +67,29 @@ class BuildDG(nn.Module):
 
     def backward(self):
         # backward on aug1
-        graph = self.output_1.popleft()
+        oldest_output_1 = self.output_1.popleft()
         if self.dg_1 is not None and graph is not None:
             rev_grad_1 = True
-            graph.backward(self.dg_1)
-            self.update_count += 1
+            oldest_output_1.backward(self.dg_1)
+            del self.dg_1
+            self.dg_1 = None
         else:
             rev_grad_1 = False
             print('no backward for aug1 in module {}'.format(self.module_num))
 
         # backward on aug2
-        graph = self.output_2.popleft()
+        oldest_output_2 = self.output_2.popleft()
         if self.dg_2 is not None and graph is not None:
             rev_grad_2 = True
-            graph.backward(self.dg_2)
-            self.update_count += 1
+            oldest_output_2.backward(self.dg_2)
+            del self.dg_2
+            self.dg_2 = None
         else:
             rev_grad_2 = False
             print('no backward for aug2 in module {}'.format(self.module_num))
 
-        return rev_grad_1 or rev_grad_2
+        self.update_count += 1
+        return rev_grad_1 and rev_grad_2
 
     def get_grad(self):
         return self.input_1.popleft().grad, self.input_2.popleft().grad

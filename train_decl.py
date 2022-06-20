@@ -229,16 +229,25 @@ def train_decl(train_loader, module, epoch, args):
         from torch.autograd import Variable
         for m in reversed(range(1, num_split)):
             previous_module_output_1, previous_module_output_2 = module[m-1].get_output()
+            # del args.input_info1[m]
             args.input_info1[m] = Variable(previous_module_output_1.detach().clone().to(
                 device[m]), requires_grad=True) if previous_module_output_1 is not None else None
+            # del args.input_info2[m]
             args.input_info2[m] = Variable(previous_module_output_2.detach().clone().to(
                 device[m]), requires_grad=True) if previous_module_output_2 is not None else None
-        # Set next module's input_grad as current module's delayed grad for next round
+        # Set current module's delayed grad as next module's input_grad for next round
         for m in range(num_split-1):
+            # del module[m].dg_1
             module[m].dg_1 = module[m+1].input_grad_1.clone().to(device[m]
                                                                  ) if module[m+1].input_grad_1 is not None else None
+            # del module[m+1].input_grad_1
+            module[m + 1].input_grad_1 = None
+
+            # del module[m].dg_2
             module[m].dg_2 = module[m+1].input_grad_2.clone().to(device[m]
                                                                  ) if module[m+1].input_grad_2 is not None else None
+            # del module[m + 1].input_grad_2
+            module[m + 1].input_grad_2 = None
         # TODO: Compute communication time
         # HERE
         # TODO: Update accuracy
@@ -355,7 +364,7 @@ def main():
         train_loss = train_decl(train_loader, module, epoch, args)
         results['train_loss'].append(train_loss)
 
-        test_acc_1, test_acc_5 = test(memory_loader, test_loader, module)
+        test_acc_1, test_acc_5 = test(memory_loader, test_loader, module, epoch, args)
         results['test_acc@1'].append(test_acc_1)
         results['test_acc@5'].append(test_acc_5)
 
