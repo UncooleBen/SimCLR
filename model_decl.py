@@ -68,7 +68,7 @@ class BuildDG(nn.Module):
     def backward(self):
         # backward on aug1
         oldest_output_1 = self.output_1.popleft()
-        if self.dg_1 is not None and graph is not None:
+        if self.dg_1 is not None and oldest_output_1 is not None:
             rev_grad_1 = True
             oldest_output_1.backward(self.dg_1)
             del self.dg_1
@@ -79,7 +79,7 @@ class BuildDG(nn.Module):
 
         # backward on aug2
         oldest_output_2 = self.output_2.popleft()
-        if self.dg_2 is not None and graph is not None:
+        if self.dg_2 is not None and oldest_output_2 is not None:
             rev_grad_2 = True
             oldest_output_2.backward(self.dg_2)
             del self.dg_2
