@@ -365,7 +365,7 @@ if __name__ == '__main__':
                         help='input batch size for training (default: 64)')
     parser.add_argument('--epochs', type=int, default=1,
                         help='number of epochs to train (default: 1)')
-    parser.add_argument('-free-compute-graph', type=bool, default=True,
+    parser.add_argument('-free-compute-graph', type=bool, default=False,
                         help='Whether to free compute graph of aug1')
     parser.add_argument('--ac-step', type=int, default=1,
                         help='')

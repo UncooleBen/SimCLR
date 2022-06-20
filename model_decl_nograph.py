@@ -39,13 +39,11 @@ class DeclModuleImpl(IDeclModule):
         self.update_count = 0
         self.module_num = split_loc
 
-        self.output_1 = None
-        self.output_2 = None
-        # self.output_1 = deque(maxlen=self.output_dq)
-        # self.output_2 = deque(maxlen=self.output_dq)
-        # for _ in range(self.output_dq):
-        #     self.output_1.append(None)
-        #     self.output_2.append(None)
+        self.output_1 = deque(maxlen=self.output_dq)
+        self.output_2 = deque(maxlen=self.output_dq)
+        for _ in range(self.output_dq):
+            self.output_1.append(None)
+            self.output_2.append(None)
         self.input_1 = deque(maxlen=self.delay + 1)
         self.input_2 = deque(maxlen=self.delay + 1)
 
@@ -78,12 +76,12 @@ class DeclModuleImpl(IDeclModule):
 
     def backward(self):
         # backward on aug1
-        if self.dg_1 is not None and self.input_1[0] is not None:
-            oldest_output_1 = self.forward(self.input_1[0])
+        oldest_output_1 = self.output_1.popleft()
+        if self.dg_1 is not None and oldest_output_1 is not None:
+            rev_grad_1 = True
             oldest_output_1.backward(self.dg_1)
             del self.dg_1
             self.dg_1 = None
-            rev_grad_1 = True
         else:
             rev_grad_1 = False
             print('no backward for aug1 in module {} dg_1 is None {} input1 is None {}'.format(
@@ -96,7 +94,6 @@ class DeclModuleImpl(IDeclModule):
             oldest_output_2.backward(self.dg_2)
             del self.dg_2
             self.dg_2 = None
-            rev_grad_2 = True
         else:
             rev_grad_2 = False
             print('no backward for aug2 in module {} dg_2 is None {} input2 is None {}'.format(
@@ -113,7 +110,11 @@ class DeclModuleImpl(IDeclModule):
         self.output_2 = output_2
 
     def get_output(self):
-        return self.output_1, self.output_2
+        # print(f'output_1 len {len(self.output_1)} output_2 len {len(self.output_2)}')
+        # print(f'self.delay = {self.delay} self.output_dq = {self.output_dq}')
+        # print(self.output_1)
+        # print(self.output_2)
+        return self.output_1[self.delay - 1], self.output_2[self.delay - 1]
 
     def set_input(self, input_1, input_2):
         self.input_1.append(input_1)
