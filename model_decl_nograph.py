@@ -28,9 +28,9 @@ if num_split == 2:
 if num_split == 4:
     model_list[0] = nn.Sequential(
         model.f[0], model.f[1], model.f[2], model.f[3][:2])
-    model_list[1] = nn.Sequential(model.f[3][2:], model.f[4][:2])
-    model_list[2] = nn.Sequential(model.f[4][2:], model.f[5][:2])
-    model_list[3] = nn.Sequential(model.f[5][2:], model.f[6], model.f[7], Flatten(), model.g)
+    model_list[1] = nn.Sequential(model.f[3][2:], model.f[4][:1])
+    model_list[2] = nn.Sequential(model.f[4][1:], model.f[5][:1])
+    model_list[3] = nn.Sequential(model.f[5][1:], model.f[6], model.f[7], Flatten(), model.g)
 
 class DeclModuleImpl(IDeclModule):
     def __init__(self, model, optimizer, split_loc, num_split):
@@ -84,6 +84,7 @@ class DeclModuleImpl(IDeclModule):
         if self.dg_1 is not None and self.input_1[0] is not None:
             oldest_output_1 = self.forward(self.input_1[0])
             oldest_output_1.backward(self.dg_1)
+            del oldest_output_1
             del self.dg_1
             self.dg_1 = None
             rev_grad_1 = True
@@ -96,6 +97,7 @@ class DeclModuleImpl(IDeclModule):
         if self.dg_2 is not None and self.input_2[0] is not None:
             oldest_output_2 = self.forward(self.input_2[0])
             oldest_output_2.backward(self.dg_2)
+            del oldest_output_2
             del self.dg_2
             self.dg_2 = None
             rev_grad_2 = True

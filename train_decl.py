@@ -314,8 +314,8 @@ def main():
         data_frame.to_csv('results_decl/{}statistics.csv'.format(save_name_pre), index_label='epoch')
 
     # TODO: save models and params
-    if args.save:
-        pass
+    # if args.save:
+    #     pass
 
 if __name__ == '__main__':
     torch.cuda.empty_cache()
