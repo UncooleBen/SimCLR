@@ -12,7 +12,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 # TODO: SET num_split to arg.num_split
-num_split = 4
+num_split = 2
 
 model_list = {}
 
@@ -69,7 +69,7 @@ class DeclModuleImpl(IDeclModule):
             self.first_layer = False
             self.last_layer = False
 
-        self.loss = 0
+        self.loss = 10.0
 
     def forward(self, x, free_grad=False):
         if free_grad:
@@ -195,7 +195,7 @@ if torch.cuda.is_available():
             device[i] = torch.device('cuda:' + str(0))
 else:
     for i in range(num_split):
-        device[i] = torch.device('cpu')
+        device[i] = torch.device('mps')
 
 # check if the split is valid or not （只测试projection_head输出的128维张量）
 test_input = torch.randn(1, 3, 224, 224).to(device[0])
