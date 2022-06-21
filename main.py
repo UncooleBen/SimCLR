@@ -51,7 +51,7 @@ def test(net, memory_data_loader, test_data_loader):
     with torch.no_grad():
         # generate feature bank
         for data, _, target in tqdm(memory_data_loader, desc='Feature extracting'):
-            feature, out = net(data.cuda(device='cuda:2', non_blocking=True))
+            feature, out = net(data.cuda(device='cuda:0', non_blocking=True))
             feature_bank.append(feature)
         # [D, N]
         feature_bank = torch.cat(feature_bank, dim=0).t().contiguous()
@@ -60,7 +60,7 @@ def test(net, memory_data_loader, test_data_loader):
         # loop test data to predict the label by weighted knn search
         test_bar = tqdm(test_data_loader)
         for data, _, target in test_bar:
-            data, target = data.cuda(device='cuda:2', non_blocking=True), target.cuda(device='cuda:2',
+            data, target = data.cuda(device='cuda:0', non_blocking=True), target.cuda(device='cuda:0',
                                                                                       non_blocking=True)
             feature, out = net(data)
 

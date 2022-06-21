@@ -10,7 +10,7 @@ from utils import Flatten
 import torch.nn.functional as F
 import torch.optim as optim
 
-num_split = 2
+num_split = 4
 model_list = {}
 
 # 定义模型: resnet50 + projection_head
@@ -18,10 +18,16 @@ model = Model()
 
 if num_split == 2:
     model_list[0] = nn.Sequential(
-        model.f[0], model.f[1], model.f[2], model.f[3], model.f[4])
+        model.f[0], model.f[1], model.f[2], model.f[3])
     model_list[1] = nn.Sequential(
-        model.f[5], model.f[6], model.f[7], Flatten(), model.g)
+        model.f[4], model.f[5], model.f[6], model.f[7], Flatten(), model.g)
 
+if num_split == 4:
+    model_list[0] = nn.Sequential(
+        model.f[0], model.f[1], model.f[2], model.f[3][:2])
+    model_list[1] = nn.Sequential(model.f[3][2:], model.f[4][:2])
+    model_list[2] = nn.Sequential(model.f[4][2:], model.f[5][:2])
+    model_list[3] = nn.Sequential(model.f[5][2:], model.f[6], model.f[7], Flatten(), model.g)
 
 class DeclModuleImpl(IDeclModule):
     def __init__(self, model, optimizer, split_loc, num_split):
@@ -124,7 +130,7 @@ class DeclModuleImpl(IDeclModule):
     # used for the last module
     def get_feature(self, x):
         if self.last_layer:
-            feature = model[:-1](x)
+            feature = self.model[:-1](x)
             # 1 * 2048
             feature = F.normalize(feature, dim=-1)
             return feature

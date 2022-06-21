@@ -11,7 +11,9 @@ from utils import Flatten
 import torch.nn.functional as F
 import torch.optim as optim
 
-num_split = 2
+# TODO: SET num_split to arg.num_split
+num_split = 4
+
 model_list = {}
 
 # 定义模型: resnet50 + projection_head
@@ -23,6 +25,12 @@ if num_split == 2:
     model_list[1] = nn.Sequential(
         model.f[5], model.f[6], model.f[7], Flatten(), model.g)
 
+if num_split == 4:
+    model_list[0] = nn.Sequential(
+        model.f[0], model.f[1], model.f[2], model.f[3][:2])
+    model_list[1] = nn.Sequential(model.f[3][2:], model.f[4][:2])
+    model_list[2] = nn.Sequential(model.f[4][2:], model.f[5][:2])
+    model_list[3] = nn.Sequential(model.f[5][2:], model.f[6], model.f[7], Flatten(), model.g)
 
 class DeclModuleImpl(IDeclModule):
     def __init__(self, model, optimizer, split_loc, num_split):
@@ -39,11 +47,8 @@ class DeclModuleImpl(IDeclModule):
         self.update_count = 0
         self.module_num = split_loc
 
-        self.output_1 = deque(maxlen=self.output_dq)
-        self.output_2 = deque(maxlen=self.output_dq)
-        for _ in range(self.output_dq):
-            self.output_1.append(None)
-            self.output_2.append(None)
+        self.output_1 = None
+        self.output_2 = None
         self.input_1 = deque(maxlen=self.delay + 1)
         self.input_2 = deque(maxlen=self.delay + 1)
 
@@ -76,28 +81,29 @@ class DeclModuleImpl(IDeclModule):
 
     def backward(self):
         # backward on aug1
-        oldest_output_1 = self.output_1.popleft()
-        if self.dg_1 is not None and oldest_output_1 is not None:
-            rev_grad_1 = True
+        if self.dg_1 is not None and self.input_1[0] is not None:
+            oldest_output_1 = self.forward(self.input_1[0])
             oldest_output_1.backward(self.dg_1)
             del self.dg_1
             self.dg_1 = None
+            rev_grad_1 = True
         else:
             rev_grad_1 = False
-            print('no backward for aug1 in module {} dg_1 is None {} input1 is None {}'.format(
-                self.module_num, self.dg_1 is None, self.input_1[0] is None))
-
+            print('no backward for aug1 in module {} dg_1 is None {} input1 is None {}'.format(self.module_num,
+                                                                                               self.dg_1 is None,
+                                                                                               self.input_1[0] is None))
         # backward on aug2
-
         if self.dg_2 is not None and self.input_2[0] is not None:
             oldest_output_2 = self.forward(self.input_2[0])
             oldest_output_2.backward(self.dg_2)
             del self.dg_2
             self.dg_2 = None
+            rev_grad_2 = True
         else:
             rev_grad_2 = False
-            print('no backward for aug2 in module {} dg_2 is None {} input2 is None {}'.format(
-                self.module_num, self.dg_2 is None, self.input_2[0] is None))
+            print('no backward for aug2 in module {} dg_2 is None {} input2 is None {}'.format(self.module_num,
+                                                                                               self.dg_2 is None,
+                                                                                               self.input_2[0] is None))
 
         self.inc_update_count()
         return rev_grad_1 and rev_grad_2
@@ -110,11 +116,7 @@ class DeclModuleImpl(IDeclModule):
         self.output_2 = output_2
 
     def get_output(self):
-        # print(f'output_1 len {len(self.output_1)} output_2 len {len(self.output_2)}')
-        # print(f'self.delay = {self.delay} self.output_dq = {self.output_dq}')
-        # print(self.output_1)
-        # print(self.output_2)
-        return self.output_1[self.delay - 1], self.output_2[self.delay - 1]
+        return self.output_1, self.output_2
 
     def set_input(self, input_1, input_2):
         self.input_1.append(input_1)
@@ -186,7 +188,7 @@ if torch.cuda.is_available():
     if mulgpu:
         for i in range(num_split):
             # Use gpu 2 3 to avoid gpu out of mem error
-            device[i] = torch.device('cuda:' + str(i + 2))
+            device[i] = torch.device('cuda:' + str(i))
     else:
         for i in range(num_split):
             device[i] = torch.device('cuda:' + str(0))
