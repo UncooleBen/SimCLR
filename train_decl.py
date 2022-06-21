@@ -202,7 +202,7 @@ def test(memory_data_loader, test_data_loader, module, epoch, args):
                     # 最后一个module只输出f的output
                     feature = module[m].get_feature(feature)
 
-            # feature, out = net(data.cuda(device='cuda:2', non_blocking=True))
+            # feature, out = net(data.cuda(non_blocking=True))
             feature_bank.append(feature)
         # [D, N]
         feature_bank = torch.cat(feature_bank, dim=0).t().contiguous()
@@ -212,7 +212,7 @@ def test(memory_data_loader, test_data_loader, module, epoch, args):
         # loop test data to predict the label by weighted knn search
         test_bar = tqdm(test_data_loader)
         for data, _, target in test_bar:
-            data, target = data.cuda(device='cuda:2', non_blocking=True), target.cuda(device=feature_bank.device,
+            data, target = data.cuda(non_blocking=True), target.cuda(device=feature_bank.device,
                                                                                       non_blocking=True)
             feature = data.to(device[0], non_blocking=True)
             for m in range(num_split):
