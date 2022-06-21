@@ -127,7 +127,7 @@ def train_decl(train_loader, module, epoch, args):
     for i, (pos_1, pos_2, _) in pbar:
         # lr = adjust_learning_rate(
         #   module=module, epoch=epoch, step=i, len_epoch=len(train_loader))
-        data_time.update(time.time() - end)
+        # data_time.update(time.time() - end)
 
         # dataLoader中pin_memory=True时，才能使用non_blocking，此时不使用虚拟内存，加快速度
         pos_1 = pos_1.to(device[0], non_blocking=True)
@@ -258,8 +258,10 @@ def main():
     # Load 不同的 decl implementation 到 global scope
     global num_split, device, module
     if args.free_compute_graph:
+        print('run in free_compute_graph version')
         from model_decl_nograph import num_split, device, module
     else:
+        print('run in vanilla version')
         from model_decl_vanilla import num_split, device, module
 
     # define data loader
@@ -292,16 +294,28 @@ def main():
     print('Training begins')
 
     results = {'train_loss': [], 'test_acc@1': [], 'test_acc@5': []}
+    save_name_pre = '{}_{}_{}_{}_{}'.format(128, args.temperature, args.k, args.batch_size, args.epochs)
 
-    for epoch in range(0, args.epochs):
+    if not os.path.exists('results_decl'):
+        os.mkdir('results_decl')
+
+    best_acc = 0.0
+
+    for epoch in range(1, args.epochs + 1):
         train_loss = train_decl(train_loader, module, epoch, args)
-        results['train_loss'].append(train_loss)
+        results['train_loss'].append(train_loss.item())  # convert the data from torch.tensor to float
 
         test_acc_1, test_acc_5 = test(
             memory_loader, test_loader, module, epoch, args)
         results['test_acc@1'].append(test_acc_1)
         results['test_acc@5'].append(test_acc_5)
 
+        data_frame = pd.DataFrame(data=results, index=range(1, epoch + 1))
+        data_frame.to_csv('results_decl/{}statistics.csv'.format(save_name_pre), index_label='epoch')
+
+    # TODO: save models and params
+    if args.save:
+        pass
 
 if __name__ == '__main__':
     torch.cuda.empty_cache()
