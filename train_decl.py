@@ -13,6 +13,7 @@ import threading
 
 import utils
 
+
 # Broken
 def adjust_learning_rate(module, epoch, step, len_epoch):
     """LR schedule that should yield 76% converged accuracy with batch size 256"""
@@ -28,7 +29,7 @@ def adjust_learning_rate(module, epoch, step, len_epoch):
     """Warmup"""
     if epoch < args.warm_up_epochs:
         lr = 0.01 * args.lr + (args.lr - 0.01 * args.lr) * (step + 1 + epoch * len_epoch) / (
-            args.warm_up_epochs * len_epoch)
+                args.warm_up_epochs * len_epoch)
     for m in range(num_split):
         for param_group in module[m].optimizer.param_groups:
             param_group['lr'] = lr
@@ -42,6 +43,15 @@ def to_python_float(t):
     else:
         return t[0]
 
+
+def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
+    filename = os.path.join(dirname, filename)
+    print(filename)
+    torch.save(state, filename)
+    if is_best:
+        shutil.copyfile(filename, os.path.join(dirname, 'model_best.pth.tar'))
+
+
 # input_1, input_2分别为两个augmentation图片的输出
 def trainfdg(module, input_1, input_2, args):
     if not module.is_last_layer():
@@ -50,6 +60,7 @@ def trainfdg(module, input_1, input_2, args):
             module.train()
             args.receive_grad[module.get_module_num()] = module.backward()
 
+            # used for ACL
             if module.get_update_count() >= args.ac_step:
                 module.step()
                 module.zero_grad()
@@ -92,7 +103,7 @@ def trainfdg(module, input_1, input_2, args):
             sim_matrix = torch.exp(
                 torch.mm(out, out.t().contiguous()) / args.temperature)
             mask = (torch.ones_like(sim_matrix) - torch.eye(2 *
-                    args.batch_size, device=sim_matrix.device)).bool()
+                                                            args.batch_size, device=sim_matrix.device)).bool()
             # [2*B, 2*B-1]
             sim_matrix = sim_matrix.masked_select(
                 mask).view(2 * args.batch_size, -1)
@@ -115,7 +126,6 @@ def train_decl(train_loader, module, epoch, args):
     for m in range(num_split):
         args.receive_grad[m] = False
 
-    # 暂时将total epoch设置成1
     pbar = tqdm(enumerate(train_loader), desc='Training Epoch {}/{}'.format(str(epoch + 1), args.epochs),
                 total=len(train_loader), unit='batch')
 
@@ -155,15 +165,15 @@ def train_decl(train_loader, module, epoch, args):
         # Set previous module's output as current module's input for next round
         from torch.autograd import Variable
         for m in reversed(range(1, num_split)):
-            previous_module_output_1, previous_module_output_2 = module[m-1].get_output(
+            previous_module_output_1, previous_module_output_2 = module[m - 1].get_output(
             )
             args.input_info1[m] = Variable(previous_module_output_1.detach().clone().to(
                 device[m]), requires_grad=True) if previous_module_output_1 is not None else None
             args.input_info2[m] = Variable(previous_module_output_2.detach().clone().to(
                 device[m]), requires_grad=True) if previous_module_output_2 is not None else None
         # Set current module's delayed grad as next module's input_grad for next round
-        for m in range(num_split-1):
-            next_module_input_grads_1, next_module_input_grads_2 = module[m+1].get_input_grad(
+        for m in range(num_split - 1):
+            next_module_input_grads_1, next_module_input_grads_2 = module[m + 1].get_input_grad(
             )
             next_module_input_grads_1 = next_module_input_grads_1.clone().to(
                 device[m]) if next_module_input_grads_1 is not None else None
@@ -213,7 +223,7 @@ def test(memory_data_loader, test_data_loader, module, epoch, args):
         test_bar = tqdm(test_data_loader)
         for data, _, target in test_bar:
             data, target = data.cuda(non_blocking=True), target.cuda(device=feature_bank.device,
-                                                                                      non_blocking=True)
+                                                                     non_blocking=True)
             feature = data.to(device[0], non_blocking=True)
             for m in range(num_split):
                 if m != num_split - 1:
@@ -249,7 +259,8 @@ def test(memory_data_loader, test_data_loader, module, epoch, args):
             total_top5 += torch.sum(
                 (pred_labels[:, :5] == target.unsqueeze(dim=-1)).any(dim=-1).float()).item()
             test_bar.set_description('Test Epoch: [{}/{}] Acc@1:{:.2f}% Acc@5:{:.2f}%'
-                                     .format(epoch, args.epochs, total_top1 / total_num * 100, total_top5 / total_num * 100))
+                                     .format(epoch, args.epochs, total_top1 / total_num * 100,
+                                             total_top5 / total_num * 100))
 
     return total_top1 / total_num * 100, total_top5 / total_num * 100
 
@@ -259,10 +270,10 @@ def main():
     global num_split, device, module
     if args.free_compute_graph:
         print('run in free_compute_graph version')
-        from model_decl_nograph import num_split, device, module
+        from model_decl_nograph import num_split, device, module, model
     else:
         print('run in vanilla version')
-        from model_decl_vanilla import num_split, device, module
+        from model_decl_vanilla import num_split, device, module, model
 
     # define data loader
     # 此处均为CIFAR10
@@ -313,9 +324,20 @@ def main():
         data_frame = pd.DataFrame(data=results, index=range(1, epoch + 1))
         data_frame.to_csv('results_decl/{}statistics.csv'.format(save_name_pre), index_label='epoch')
 
-    # TODO: save models and params
-    # if args.save:
-    #     pass
+        # is_best = test_acc_1 > best_acc
+        # # TODO: save models and params
+        # if args.save:
+        #     optimizer_save = []
+        #     for m in range(num_split):
+        #         optimizer_save.append(module[m].optimizer)
+        #     save_checkpoint({
+        #         'epoch': epoch,
+        #         'args': args,
+        #         'state_dict': model.state_dict(),  #???
+        #         'best_prec1': best_prec1,
+        #         'optimizer': optimizer_save,
+        #     }, is_best)
+
 
 if __name__ == '__main__':
     torch.cuda.empty_cache()
@@ -326,7 +348,9 @@ if __name__ == '__main__':
                         help='input batch size for training (default: 128)')
     parser.add_argument('--epochs', type=int, default=1,
                         help='number of epochs to train (default: 1)')
-    parser.add_argument('-free-compute-graph', type=bool, default=True,
+    parser.add_argument('--save', action='store_true', default=True,
+                        help='save the model (default: True)')
+    parser.add_argument('--free-compute-graph', action='store_true', default=True,
                         help='Whether to free compute graph of aug1')
     parser.add_argument('--ac-step', type=int, default=1,
                         help='')
