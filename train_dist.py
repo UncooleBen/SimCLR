@@ -25,7 +25,6 @@ import torchvision.datasets as datasets
 import torchvision.models as models
 from thop import profile, clever_format
 from tqdm import tqdm
-
 from model import Model
 import utils
 
@@ -96,6 +95,10 @@ def main():
     args.distributed = args.world_size > 1 or args.multiprocessing_distributed
 
     ngpus_per_node = torch.cuda.device_count()
+
+    # if some gpus are in use
+    ngpus_per_node = 2
+
     if args.multiprocessing_distributed:
         # Since we have ngpus_per_node processes per node, the total world_size
         # needs to be adjusted accordingly
@@ -110,7 +113,8 @@ def main():
 
 def main_worker(gpu, ngpus_per_node, args):
     global best_acc1
-    args.gpu = gpu
+    # gpu 0 and 1 are in use
+    args.gpu = gpu + 2
 
     if args.gpu is not None:
         print("Use GPU: {} for training".format(args.gpu))
@@ -124,8 +128,16 @@ def main_worker(gpu, ngpus_per_node, args):
             args.rank = args.rank * ngpus_per_node + gpu
         dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
                                 world_size=args.world_size, rank=args.rank)
-    # create model
+        ###############
+        process_group = torch.distributed.new_group()
+        #####################
+        # create model
     model = Model(args.feature_dim).cuda()
+    ################
+    if args.distributed:
+        model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model, process_group)
+    ###################
+
     if not torch.cuda.is_available():
         print('using CPU, this will be slow')
     elif args.distributed:
@@ -216,6 +228,10 @@ def train(net, data_loader, train_optimizer, epoch, args):
         pos_1, pos_2 = pos_1.cuda(args.gpu, non_blocking=True), pos_2.cuda(args.gpu, non_blocking=True)
         feature_1, out_1 = net(pos_1)
         feature_2, out_2 = net(pos_2)
+
+        # ddp中，进程互相独立，每个worker上的batch_size为total_batch_size / num_workers
+        # i.e., feature.size = (total_batch_size, 2048)
+
         # [2*B, D]
         out = torch.cat([out_1, out_2], dim=0)
         # [2*B, 2*B]
@@ -231,7 +247,10 @@ def train(net, data_loader, train_optimizer, epoch, args):
         loss = (- torch.log(pos_sim / sim_matrix.sum(dim=-1))).mean()
         # test with another criterion
         train_optimizer.zero_grad()
+
+        ####################################
         loss.backward()
+        ####################################
         train_optimizer.step()
 
         total_num += args.batch_size
@@ -248,7 +267,8 @@ def test(net, memory_data_loader, test_data_loader, epoch, args):
     with torch.no_grad():
         # generate feature bank
         for data, _, target in tqdm(memory_data_loader, desc='Feature extracting'):
-            feature, out = net(data.cuda(non_blocking=True))
+            # 放到分布式每个node对应的gpu上
+            feature, out = net(data.cuda(args.gpu, non_blocking=True))
             feature_bank.append(feature)
         # [D, N]
         feature_bank = torch.cat(feature_bank, dim=0).t().contiguous()
@@ -257,7 +277,7 @@ def test(net, memory_data_loader, test_data_loader, epoch, args):
         # loop test data to predict the label by weighted knn search
         test_bar = tqdm(test_data_loader)
         for data, _, target in test_bar:
-            data, target = data.cuda(non_blocking=True), target.cuda(non_blocking=True)
+            data, target = data.cuda(args.gpu, non_blocking=True), target.cuda(args.gpu, non_blocking=True)
             feature, out = net(data)
 
             total_num += data.size(0)

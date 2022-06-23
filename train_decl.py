@@ -333,7 +333,7 @@ def main():
         #     save_checkpoint({
         #         'epoch': epoch,
         #         'args': args,
-        #         'state_dict': model.state_dict(),  #???
+        #         'state_dict': model.state_dict(),  # model和module实际指向同一地址
         #         'best_prec1': best_prec1,
         #         'optimizer': optimizer_save,
         #     }, is_best)

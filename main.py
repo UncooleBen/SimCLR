@@ -20,6 +20,7 @@ def train(net, data_loader, train_optimizer):
         pos_1, pos_2 = pos_1.cuda(non_blocking=True), pos_2.cuda(non_blocking=True)
         feature_1, out_1 = net(pos_1)
         feature_2, out_2 = net(pos_2)
+
         # [2*B, D]
         out = torch.cat([out_1, out_2], dim=0)
         # print(f'out= {torch.norm(out, 2, dim=1)}')
@@ -62,7 +63,8 @@ def test(net, memory_data_loader, test_data_loader):
         for data, _, target in test_bar:
             data, target = data.cuda(device='cuda:0', non_blocking=True), target.cuda(device='cuda:0',
                                                                                       non_blocking=True)
-            feature, out = net(data)
+            with torch.no_grad():
+              feature, out = net(data)
 
             total_num += data.size(0)
             # compute cos similarity between each feature vector and feature bank ---> [B, N]
@@ -120,10 +122,9 @@ if __name__ == '__main__':
     # model = Model(feature_dim).cuda()
 
     # data parallel
-    # device_ids = [0, 1]
     model = Model(feature_dim)
     model = model.to(device)
-    model = torch.nn.DataParallel(model, device_ids=[0, 1])
+    model = torch.nn.DataParallel(model, device_ids=[0, 1, 2, 3])
 
     # # 获得模型的参数量和计算量
     # flops, params = profile(model, inputs=(torch.randn(1, 3, 32, 32).cuda(),))
