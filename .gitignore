@@ -1,3 +1,8 @@
+# project config
 .idea/
 __pycache__/
 data/
+# debug purposes
+check_loss.py
+check_pth.py
+complementary_test.py
