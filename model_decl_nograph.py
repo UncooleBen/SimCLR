@@ -189,7 +189,8 @@ device = {}
 if torch.cuda.is_available():
     if mulgpu:
         for i in range(num_split):
-            device[i] = torch.device('cuda:' + str(i))
+            # gpu 0 and 1 are in use
+            device[i] = torch.device('cuda:' + str(i + 2))
     else:
         for i in range(num_split):
             device[i] = torch.device('cuda:' + str(0))
@@ -197,7 +198,7 @@ else:
     for i in range(num_split):
         device[i] = torch.device('mps')
 
-# check if the split is valid or not （只测试projection_head输出的128维张量）
+# check if the split is valid or not
 test_input = torch.randn(1, 3, 224, 224).to(device[0])
 
 with torch.no_grad():

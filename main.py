@@ -21,6 +21,10 @@ def train(net, data_loader, train_optimizer):
         feature_1, out_1 = net(pos_1)
         feature_2, out_2 = net(pos_2)
 
+        ###########################
+        # out_2 = out_2.detach()
+        ###########################
+
         # [2*B, D]
         out = torch.cat([out_1, out_2], dim=0)
         # print(f'out= {torch.norm(out, 2, dim=1)}')
@@ -35,6 +39,7 @@ def train(net, data_loader, train_optimizer):
         pos_sim = torch.cat([pos_sim, pos_sim], dim=0)
         loss = (- torch.log(pos_sim / sim_matrix.sum(dim=-1))).mean()
         train_optimizer.zero_grad()
+
         loss.backward()
         train_optimizer.step()
 
@@ -52,7 +57,7 @@ def test(net, memory_data_loader, test_data_loader):
     with torch.no_grad():
         # generate feature bank
         for data, _, target in tqdm(memory_data_loader, desc='Feature extracting'):
-            feature, out = net(data.cuda(device='cuda:0', non_blocking=True))
+            feature, out = net(data.cuda(device='cuda:2', non_blocking=True))
             feature_bank.append(feature)
         # [D, N]
         feature_bank = torch.cat(feature_bank, dim=0).t().contiguous()
@@ -61,7 +66,7 @@ def test(net, memory_data_loader, test_data_loader):
         # loop test data to predict the label by weighted knn search
         test_bar = tqdm(test_data_loader)
         for data, _, target in test_bar:
-            data, target = data.cuda(device='cuda:0', non_blocking=True), target.cuda(device='cuda:0',
+            data, target = data.cuda(device='cuda:2', non_blocking=True), target.cuda(device='cuda:2',
                                                                                       non_blocking=True)
             with torch.no_grad():
               feature, out = net(data)
@@ -115,7 +120,7 @@ if __name__ == '__main__':
     test_data = utils.CIFAR10Pair(root='data', train=False, transform=utils.test_transform, download=True)
     test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=True)
 
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
     print(device)
 
     # # model setup and optimizer config
@@ -124,7 +129,7 @@ if __name__ == '__main__':
     # data parallel
     model = Model(feature_dim)
     model = model.to(device)
-    model = torch.nn.DataParallel(model, device_ids=[0, 1, 2, 3])
+    model = torch.nn.DataParallel(model, device_ids=[2, 3])
 
     # # 获得模型的参数量和计算量
     # flops, params = profile(model, inputs=(torch.randn(1, 3, 32, 32).cuda(),))

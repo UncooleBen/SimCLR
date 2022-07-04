@@ -114,7 +114,8 @@ def main():
 def main_worker(gpu, ngpus_per_node, args):
     global best_acc1
     # gpu 0 and 1 are in use
-    args.gpu = gpu + 2
+    if args.multiprocessing_distributed:
+        args.gpu = gpu + 2
 
     if args.gpu is not None:
         print("Use GPU: {} for training".format(args.gpu))
@@ -162,7 +163,13 @@ def main_worker(gpu, ngpus_per_node, args):
         model = model.cuda(args.gpu)
     else:
         print('train in DP')
-        model = torch.nn.DataParallel(model).cuda()
+        ####
+        args.gpu = 2
+        device = torch.device("cuda:2" if torch.cuda.is_available() else "cpu")
+        model = model.to(device)
+        ####
+        model = torch.nn.DataParallel(model, device_ids=[2, 3])
+        ####
 
     # 获得模型的参数量和计算量, 影响dp
     # flops, params = profile(model, inputs=(torch.randn(1, 3, 32, 32).cuda(),))

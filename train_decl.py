@@ -1,5 +1,6 @@
 import argparse
 import os
+import shutil
 
 import pandas as pd
 import torch
@@ -45,6 +46,8 @@ def to_python_float(t):
 
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
+    save_name_pre = 'test'
+    dirname = 'results/{}_model.pth'.format(save_name_pre)
     filename = os.path.join(dirname, filename)
     print(filename)
     torch.save(state, filename)
@@ -60,7 +63,7 @@ def trainfdg(module, input_1, input_2, args):
             module.train()
             args.receive_grad[module.get_module_num()] = module.backward()
 
-            # used for ACL
+            # used for ADL
             if module.get_update_count() >= args.ac_step:
                 module.step()
                 module.zero_grad()
@@ -114,9 +117,12 @@ def trainfdg(module, input_1, input_2, args):
             pos_sim = torch.cat([pos_sim, pos_sim], dim=0)
             loss = (- torch.log(pos_sim / sim_matrix.sum(dim=-1))).mean()
             loss.backward()
+
             module.inc_update_count()
             # Update loss to module
             module.set_loss(loss.detach())
+
+            # TODO:why here output_1.grad is none???
             module.set_input_grad(input_1.grad, input_2.grad)
         else:
             pass
@@ -324,8 +330,9 @@ def main():
         data_frame = pd.DataFrame(data=results, index=range(1, epoch + 1))
         data_frame.to_csv('results_decl/{}statistics.csv'.format(save_name_pre), index_label='epoch')
 
-        # is_best = test_acc_1 > best_acc
-        # # TODO: save models and params
+        is_best = test_acc_1 > best_acc
+        # TODO: save models and params
+        # original save method for decl
         # if args.save:
         #     optimizer_save = []
         #     for m in range(num_split):
@@ -334,9 +341,13 @@ def main():
         #         'epoch': epoch,
         #         'args': args,
         #         'state_dict': model.state_dict(),  # model和module实际指向同一地址
-        #         'best_prec1': best_prec1,
+        #         'best_prec1': best_acc,
         #         'optimizer': optimizer_save,
         #     }, is_best)
+
+        if args.save and is_best:
+            best_acc = test_acc_1
+            torch.save(model.state_dict(), 'results_decl/{}_model.pth'.format(save_name_pre))
 
 
 if __name__ == '__main__':
@@ -348,12 +359,12 @@ if __name__ == '__main__':
                         help='input batch size for training (default: 128)')
     parser.add_argument('--epochs', type=int, default=1,
                         help='number of epochs to train (default: 1)')
-    parser.add_argument('--save', action='store_true', default=True,
-                        help='save the model (default: True)')
+    parser.add_argument('--save', action='store_true', default=False,
+                        help='save the model (default: False)')
     parser.add_argument('--free-compute-graph', action='store_true', default=True,
                         help='Whether to free compute graph of aug1')
     parser.add_argument('--ac-step', type=int, default=1,
-                        help='')
+                        help='gradient accumulate steps')
     parser.add_argument('--temperature', default=0.5,
                         type=float, help='Temperature used in softmax')
     parser.add_argument('--clip', default=1e10, type=float,
